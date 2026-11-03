@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur.
+Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur, three bundled OFL reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC) and a 90–110% text scale.
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -16,6 +16,8 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
+- **Bundled fonts (0.6)** — LXGW WenKai, Noto Serif SC and Noto Sans SC, one weight each, subset to GB2312 (~3.7 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
+- **Text scale (0.6)** — the 90–110% slider scales the interface typography tokens (`--dsw-font-*`) and the conversation/code/terminal font-size variables; it only writes CSS variables and never republishes the theme.
 
 ## Install
 
@@ -64,18 +66,21 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/dsh-wallpaper/state` | `{ config, images }` |
-| PATCH | `/dsh-wallpaper/config` | partial `{ mode, customId, panelOpacity, blur }` |
+| GET | `/dsh-wallpaper/state` | `{ config, images, fonts }` |
+| PATCH | `/dsh-wallpaper/config` | partial `{ mode, customId, panelOpacity, blur, fontId, fontScale }` |
 | POST | `/dsh-wallpaper/library` | raw image bytes, `content-type` + `x-filename` (URI-encoded), magic-byte sniffed; the upload becomes the selection |
 | DELETE | `/dsh-wallpaper/library/<id>` | delete an image, fall back to the built-in wallpaper if it was selected |
 | GET | `/dsh-wallpaper/assets/<id>` | image bytes, immutable cache, sha256 ETag |
+| GET/HEAD | `/dsh-wallpaper/fonts/<file>` | bundled font / preview subset / OFL text; the name must be listed in the manifest; immutable cache + sha256 ETag/304 |
 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + syntax check + 38 behaviour tests
+npm run check        # rebuild bundle + verify font payload + syntax check + 45 behaviour tests
 npm test             # tests only
-npm run build        # rebuild lib/client.js (inlines wallpaper data URIs)
+npm run build        # rebuild lib/client.js (inlines wallpaper data URIs + font manifest)
+npm run fonts        # regenerate the bundled fonts (fonttools + brotli + network; sources pinned)
+npm run fonts:check  # verify fonts/ against manifest sha256 / sizes / woff2 magic
 npm run wallpapers   # regenerate the built-in art (Pillow + numpy, fixed seed)
 ```
 
@@ -92,6 +97,8 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - **Thumbnails** — the 168 px cards use 336×210 bakes (≈700 B each for the built-ins) instead of decoding a 13.7 MB original.
 - **Disk / network** — `PATCH` is debounced by 220 ms (0 writes while dragging, 1 on release); assets are read asynchronously with a 32 MB LRU, and a 304 is decided from the metadata ETag before any file read, so serving never blocks the Host event loop; an unchanged PATCH is not written.
 - **Memory** — each 2400×1500 built-in image decodes to ≈13.7 MB and only the active light/dark one is decoded; uploads above 40 megapixels are rejected (they would decode to hundreds of MB).
+- **Fonts on demand** — `@font-face` only declares faces; the settings cards use 3–6 KB preview subsets and the full file (1.0–1.5 MB) is fetched only once a font is selected. Files are `immutable` with a sha256 ETag, so a second load is a 304.
+- **Scale writes variables only** — 51 typography tokens plus 3 body font-size variables per change: no stylesheet rebuild, no `theme/change`.
 - **Trade-off** — a large blur is the one expensive setting. Custom-image thumbnails reuse the original file, so a very large upload costs one decode when Settings opens.
 
 ## Notes and limits
@@ -105,7 +112,10 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - Custom-image thumbnails reuse the original file; there is no server-side downscale.
 - The sidebar override also sets the documented `--dsw-specific-sidebar-fill` token, so surfaces that read it (the Windows title bar) stay translucent.
 - Two Host processes sharing one data directory do not merge writes (normally there is exactly one Desktop process); edits made by hand are picked up after a Host restart.
-- The 38 tests cover behaviour, not aesthetics.
+- The font subsets cover GB2312 (6763 hanzi) plus Latin/punctuation/full-width forms; rare glyphs fall back to the system font, so mixed lines can differ slightly. Only weight 400 ships — `500/600` is synthesized by the browser.
+- If the native *Appearance → Text font* field is set, its inline `<body>` value wins over the plugin's choice; clear it to let the plugin apply.
+- The text scale targets Harness typography tokens and the conversation/code/terminal sizes; icons and spacing do not scale (this is a font scale, not a UI zoom).
+- The 45 tests cover behaviour, not aesthetics.
 
 ## Data integrity
 
@@ -119,3 +129,13 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 ## License
 
 [MIT](./LICENSE)
+
+The bundled typefaces are distributed under the SIL Open Font License 1.1; the full texts live in `fonts/licenses/`:
+
+| Font | Source | License |
+|---|---|---|
+| LXGW WenKai | [lxgw/LxgwWenKai](https://github.com/lxgw/LxgwWenKai) v1.530 | SIL OFL 1.1 |
+| Noto Serif SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notoserifsc) | SIL OFL 1.1 |
+| Noto Sans SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc) | SIL OFL 1.1 |
+
+The woff2 files are GB2312 subsets of the originals, keeping the OFL notice and original copyright; no reserved font name is used.

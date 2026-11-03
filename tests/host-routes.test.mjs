@@ -167,6 +167,7 @@ test("registers the documented routes", () => {
       "exact /dsh-wallpaper/library",
       "prefix /dsh-wallpaper/library",
       "prefix /dsh-wallpaper/assets",
+      "prefix /dsh-wallpaper/fonts",
     ],
   );
   app.dispose();
@@ -176,13 +177,110 @@ test("starts with defaults and creates the data files", async () => {
   const app = setup();
   const response = await state(app);
   assert.equal(response.status, 200);
-  assert.deepEqual(response.json(), {
-    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0 },
-    images: [],
+  const payload = response.json();
+  assert.deepEqual(payload.config, {
+    mode: "official",
+    customId: null,
+    panelOpacity: 52,
+    blur: 0,
+    fontId: "system",
+    fontScale: 100,
   });
+  assert.deepEqual(payload.images, []);
+  assert.equal(payload.fonts.length, 3);
+  assert.deepEqual(
+    payload.fonts.map((font) => font.id),
+    ["wenkai", "serif", "sans"],
+  );
+  assert.equal(payload.fonts[0].labels.zh, "霞鹜文楷");
+  assert.match(payload.fonts[0].fallback, /Kaiti SC/);
   assert.ok(existsSync(join(app.dataDir, "config.json")));
   assert.ok(existsSync(join(app.dataDir, "library.json")));
   app.dispose();
+});
+
+test("serves the bundled fonts with an immutable cache and ETag/304", async () => {
+  const app = setup();
+  const woff2 = await call(app.routes, "GET", "/dsh-wallpaper/fonts/wenkai.woff2");
+  assert.equal(woff2.status, 200);
+  assert.equal(woff2.headers["content-type"], "font/woff2");
+  assert.equal(woff2.headers["cache-control"], "private, max-age=31536000, immutable");
+  assert.match(woff2.headers.etag, /^"[0-9a-f]{64}"$/);
+  assert.equal(woff2.body().subarray(0, 4).toString("latin1"), "wOF2");
+  assert.equal(Number(woff2.headers["content-length"]), woff2.body().length);
+
+  const head = await call(app.routes, "HEAD", "/dsh-wallpaper/fonts/wenkai.woff2");
+  assert.equal(head.status, 200);
+  assert.equal(head.body().length, 0);
+  assert.equal(Number(head.headers["content-length"]), woff2.body().length);
+
+  const cached = await call(app.routes, "GET", "/dsh-wallpaper/fonts/wenkai.woff2", {
+    headers: { "if-none-match": woff2.headers.etag },
+  });
+  assert.equal(cached.status, 304);
+  assert.equal(cached.body().length, 0);
+
+  const preview = await call(app.routes, "GET", "/dsh-wallpaper/fonts/serif-preview.woff2");
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body().subarray(0, 4).toString("latin1"), "wOF2");
+  assert.ok(preview.body().length < 20 * 1024, "preview subsets stay tiny");
+
+  // The OFL texts ship with the package and are served for transparency.
+  const license = await call(app.routes, "GET", "/dsh-wallpaper/fonts/LICENSE-wenkai.txt");
+  assert.equal(license.status, 200);
+  assert.match(license.headers["content-type"], /^text\/plain/);
+  assert.match(license.body().toString("utf8"), /SIL OPEN FONT LICENSE/);
+  app.dispose();
+});
+
+test("font requests only reach files the manifest allows", async () => {
+  const app = setup();
+  for (const url of [
+    "/dsh-wallpaper/fonts/manifest.json",
+    "/dsh-wallpaper/fonts/%2e%2e%2fpackage.json",
+    "/dsh-wallpaper/fonts/unknown.woff2",
+  ]) {
+    const response = await call(app.routes, "GET", url);
+    assert.equal(response.status, 404, `${url} must not be served`);
+  }
+  // A literal `../` is normalized by the URL parser into a path no route owns.
+  assert.equal(routeFor(app.routes, "/dsh-wallpaper/package.json"), undefined);
+  app.dispose();
+});
+
+test("persists the font choice and scale, and clamps bad values", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dsh-wallpaper-font-"));
+  ownedRoots.add(root);
+  const app = setup({ home: root });
+  const patched = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fontId: "serif", fontScale: 110 }),
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.json().config.fontId, "serif");
+  assert.equal(patched.json().config.fontScale, 110);
+
+  const bad = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fontId: "../../etc/passwd", fontScale: 500 }),
+  });
+  assert.equal(bad.status, 200);
+  assert.equal(bad.json().config.fontId, "system");
+  assert.equal(bad.json().config.fontScale, 110);
+
+  const saved = JSON.parse(readFileSync(join(app.dataDir, "config.json"), "utf8"));
+  assert.equal(saved.fontId, "system");
+  assert.equal(saved.fontScale, 110);
+
+  // A restart re-reads the same file.
+  app.dispose();
+  const restarted = setup({ home: root });
+  const snapshot = await state(restarted);
+  assert.equal(snapshot.json().config.fontScale, 110);
+  assert.equal(snapshot.json().config.fontId, "system");
+  restarted.dispose();
+  ownedRoots.delete(root);
+  rmSync(root, { recursive: true, force: true });
 });
 
 test("uploads an image, selects it, serves it and keeps it on disk", async () => {

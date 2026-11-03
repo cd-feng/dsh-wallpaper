@@ -1,0 +1,78 @@
+{
+  "files": [
+    "wenkai.woff2",
+    "wenkai-preview.woff2",
+    "serif.woff2",
+    "serif-preview.woff2",
+    "sans.woff2",
+    "sans-preview.woff2"
+  ],
+  "fonts": [
+    {
+      "bytes": 1573212,
+      "fallback": "\"Kaiti SC\", \"STKaiti\", \"PingFang SC\", sans-serif",
+      "family": "DWP WenKai",
+      "file": "wenkai.woff2",
+      "id": "wenkai",
+      "labels": {
+        "en": "LXGW WenKai",
+        "zh": "霞鹜文楷"
+      },
+      "license": {
+        "file": "LICENSE-wenkai.txt",
+        "name": "SIL Open Font License 1.1"
+      },
+      "previewBytes": 3160,
+      "previewFile": "wenkai-preview.woff2",
+      "previewSha256": "ae9a876a727fac6b8ff9ab597b94fb6c47d637fee10bcc781254527c1b88099a",
+      "sample": "永和九年，岁在癸丑。文楷手写 Aa 123",
+      "sha256": "1e7d9d93624b1bc64f8b4145f68e5e254d80c3682d23bf3dcd52ffc9df5a0b59"
+    },
+    {
+      "bytes": 1303624,
+      "fallback": "\"Songti SC\", \"STSong\", \"Noto Serif CJK SC\", serif",
+      "family": "DWP Noto Serif SC",
+      "file": "serif.woff2",
+      "id": "serif",
+      "labels": {
+        "en": "Noto Serif SC",
+        "zh": "思源宋体"
+      },
+      "license": {
+        "file": "LICENSE-noto-serif-sc.txt",
+        "name": "SIL Open Font License 1.1"
+      },
+      "previewBytes": 3116,
+      "previewFile": "serif-preview.woff2",
+      "previewSha256": "40634e3b3a94a09300e5a2aa5ccae00aab54fb7e807e89fac80514fec202cec5",
+      "sample": "山河远阔，人间烟火。宋体雅正 Aa 123",
+      "sha256": "d91c4a8971d623035b176a4d6346f32aebe1a19ade57b37f4020e710a31b6fe7"
+    },
+    {
+      "bytes": 990372,
+      "fallback": "\"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif",
+      "family": "DWP Noto Sans SC",
+      "file": "sans.woff2",
+      "id": "sans",
+      "labels": {
+        "en": "Noto Sans SC",
+        "zh": "思源黑体"
+      },
+      "license": {
+        "file": "LICENSE-noto-sans-sc.txt",
+        "name": "SIL Open Font License 1.1"
+      },
+      "previewBytes": 2672,
+      "previewFile": "sans-preview.woff2",
+      "previewSha256": "6e13dc5cb235c383cb2d58e55ca54b1e088796813d2be7a334ad42ab89979785",
+      "sample": "清晰现代，删繁就简。黑体 Aa 123",
+      "sha256": "107713b25151fec1a681f41e2a5e35f653c9a980ca341d679b7afe30bff02a47"
+    }
+  ],
+  "licenses": [
+    "LICENSE-wenkai.txt",
+    "LICENSE-noto-serif-sc.txt",
+    "LICENSE-noto-sans-sc.txt"
+  ],
+  "version": 1
+}

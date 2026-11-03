@@ -47,10 +47,16 @@ function createDocument() {
     },
   };
   const attributes = new Map();
+  const bodyStyle = new Map();
   const body = {
     setAttribute: (name, value) => attributes.set(name, value),
     removeAttribute: (name) => attributes.delete(name),
     hasAttribute: (name) => attributes.has(name),
+    style: {
+      setProperty: (name, value) => bodyStyle.set(name, value),
+      getPropertyValue: (name) => bodyStyle.get(name) ?? "",
+      removeProperty: (name) => bodyStyle.delete(name),
+    },
   };
   const rootStyle = new Map();
   const documentElement = {
@@ -80,6 +86,7 @@ function createDocument() {
     },
     styleTags,
     attributes,
+    bodyStyle,
     rootStyle,
   };
 }
@@ -142,7 +149,7 @@ function clamp(value, min, max, fallback) {
 /** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
 function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, patchDelay = 0 } = {}) {
   const state = {
-    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, ...config },
+    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, fontId: "system", fontScale: 100, ...config },
     images: [...images],
   };
   const calls = [];
@@ -161,6 +168,8 @@ function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, 
       customId,
       panelOpacity: clamp(source.panelOpacity, 20, 100, 52),
       blur: clamp(source.blur, 0, 24, 0),
+      fontId: typeof source.fontId === "string" && /^[a-z0-9-]{1,32}$/.test(source.fontId) ? source.fontId : "system",
+      fontScale: clamp(source.fontScale, 90, 110, 100),
     };
   };
 
@@ -505,8 +514,8 @@ test("the page renders localized copy, the upload input and both sliders", async
   assert.match(fileInputs[0].props.accept, /image\/png/);
   assert.match(fileInputs[0].props.accept, /image\/jpeg/);
   const ranges = findAll(tree, (element) => element.type === "input" && element.props.type === "range");
-  assert.deepEqual(ranges.map((range) => range.props.min), [20, 0]);
-  assert.deepEqual(ranges.map((range) => range.props.max), [100, 24]);
+  assert.deepEqual(ranges.map((range) => range.props.min), [90, 20, 0]);
+  assert.deepEqual(ranges.map((range) => range.props.max), [110, 100, 24]);
   assert.deepEqual(cardNames(tree), ["官方", "极光"]);
   app.dispose();
 });
@@ -603,8 +612,8 @@ test("a slider repaints at once and writes one debounced PATCH", async () => {
   const ranges = findAll(app.render(), (element) => element.type === "input" && element.props.type === "range");
   const before = app.overrides.length;
   const sheetBefore = sheetOf(app).textContent;
-  ranges[0].props.onChange({ currentTarget: { value: "80" } });
-  ranges[0].props.onChange({ currentTarget: { value: "85" } });
+  ranges[1].props.onChange({ currentTarget: { value: "80" } });
+  ranges[1].props.onChange({ currentTarget: { value: "85" } });
   await app.settle();
 
   // Both events collapse into one frame; the theme layer is not re-published at
@@ -679,7 +688,7 @@ test("the unreachable-Host message offers a retry that reloads the state", async
 
 test("a slow PATCH cannot revert a newer slider change", async () => {
   const app = await boot({ patchDelay: 140 });
-  const range = () => findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[0];
+  const range = () => findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[1];
 
   range().props.onChange({ currentTarget: { value: "80" } });
   await delay(240); // the first PATCH is now in flight
@@ -690,6 +699,97 @@ test("a slow PATCH cannot revert a newer slider change", async () => {
   await delay(320);
   assert.equal(app.host.state.config.panelOpacity, 85);
   app.dispose();
+});
+
+test("a bundled font is applied through the theme font variable and persisted", async () => {
+  const app = await boot();
+  try {
+    const fontButton = findAll(
+      app.render(),
+      (element) => element.type === "button" && element.props.className === "dwp-fontCard" && element.props.title.includes("LXGW"),
+    )[0];
+    assert.ok(fontButton, "the WenKai card renders");
+    assert.equal(app.dom.rootStyle.get("--dsh-font-family-text") ?? "", "");
+
+    fontButton.props.onClick();
+    await delay(280); // the write is debounced by PERSIST_DELAY
+    assert.equal(
+      app.dom.rootStyle.get("--dsh-font-family-text"),
+      '"DWP WenKai", "Kaiti SC", "STKaiti", "PingFang SC", sans-serif',
+    );
+
+    const patch = app.host.calls.filter((call) => call.method === "PATCH");
+    assert.equal(patch.length > 0, true);
+    assert.equal(JSON.parse(String(patch.at(-1).init.body)).fontId, "wenkai");
+    assert.equal(app.host.state.config.fontId, "wenkai");
+
+    // The stylesheet declares every face up front but fetches nothing until used.
+    const fontSheet = app.dom.styleTags.find((tag) => tag.dataset.pluginCss === "dsh-wallpaper/font.css");
+    assert.ok(fontSheet, "font stylesheet exists");
+    assert.match(fontSheet.textContent, /font-family:"DWP WenKai";/);
+    assert.match(fontSheet.textContent, /"DWP Noto Serif SC Preview"/);
+    assert.match(fontSheet.textContent, /\/dsh-wallpaper\/fonts\/serif\.woff2/);
+
+    // Back to the system stack: the variable is removed, not set to a value.
+    const systemButton = findAll(
+      app.render(),
+      (element) => element.type === "button" && element.props.className === "dwp-fontCard" && element.props.title.includes("苹方"),
+    )[0];
+    systemButton.props.onClick();
+    await app.settle();
+    assert.equal(app.dom.rootStyle.get("--dsh-font-family-text") ?? "", "");
+  } finally {
+    app.dispose();
+  }
+});
+
+test("an unknown font id from the Host falls back to the system stack", async () => {
+  const app = await boot({ config: { fontId: "removed-font" } });
+  try {
+    await app.settle();
+    assert.equal(app.dom.rootStyle.get("--dsh-font-family-text") ?? "", "");
+    assert.equal(app.dom.styleTags.some((tag) => tag.dataset.pluginCss === "dsh-wallpaper/font.css"), true);
+  } finally {
+    app.dispose();
+  }
+});
+
+test("text scale rewrites the typography tokens and the body content sizes", async () => {
+  const app = await boot();
+  try {
+    const scale = () =>
+      findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[0];
+    assert.equal(scale().props.value, 100);
+    assert.equal(app.dom.bodyStyle.get("--dsw-font-base-16-font-size") ?? "", "");
+
+    scale().props.onChange({ currentTarget: { value: "110" } });
+    await app.settle();
+    assert.equal(app.dom.bodyStyle.get("--dsw-font-base-16-font-size"), "17.6px");
+    assert.equal(app.dom.bodyStyle.get("--dsw-font-base-16"), "17.6px/26.4px var(--dsw-font-family)");
+    assert.equal(app.dom.bodyStyle.get("--dsh-content-font-size"), "15.4px");
+    assert.equal(app.dom.bodyStyle.get("--dsh-code-font-size"), "12.1px");
+
+    scale().props.onChange({ currentTarget: { value: "100" } });
+    await app.settle();
+    assert.equal(app.dom.bodyStyle.get("--dsw-font-base-16-font-size") ?? "", "");
+    assert.equal(app.dom.bodyStyle.get("--dsh-content-font-size") ?? "", "");
+  } finally {
+    app.dispose();
+  }
+});
+
+test("disposing the plugin removes the font layer and the scaled variables", async () => {
+  const app = await boot();
+  const fontButton = findAll(
+    app.render(),
+    (element) => element.type === "button" && element.props.className === "dwp-fontCard" && element.props.title.includes("LXGW"),
+  )[0];
+  fontButton.props.onClick();
+  await app.settle();
+  assert.notEqual(app.dom.rootStyle.get("--dsh-font-family-text") ?? "", "");
+  app.dispose();
+  assert.equal(app.dom.rootStyle.get("--dsh-font-family-text") ?? "", "");
+  assert.equal(app.dom.styleTags.some((tag) => tag.dataset.pluginCss === "dsh-wallpaper/font.css"), false);
 });
 
 test("disposing the plugin cancels the pending write", async () => {

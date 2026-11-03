@@ -28,7 +28,13 @@ jobs:
           node --check lib/index.js
           node --check lib/client.js
           node --check src/client.template.js
-          python3 -m py_compile scripts/make-wallpapers.py
+          node --check scripts/build-client.mjs
+          node --check scripts/build-fonts.mjs
+          node --check scripts/check-fonts.mjs
+          python3 -m py_compile scripts/make-wallpapers.py scripts/subset-fonts.py
+
+      - name: Committed font payload matches the manifest
+        run: node scripts/check-fonts.mjs
 
       - name: Behaviour tests
         run: npm test
@@ -47,7 +53,7 @@ jobs:
           npm pack --dry-run --json > pack.json
           node - <<'NODE'
           const files = new Map(JSON.parse(require("node:fs").readFileSync("pack.json", "utf8"))[0].files.map((file) => [file.path, file.size]));
-          const required = ["lib/client.js", "lib/index.js", "cordis.patch.yml", "locale/zh.json", "locale/en.json", "icon.svg", "package.json"];
+          const required = ["lib/client.js", "lib/index.js", "cordis.patch.yml", "locale/zh.json", "locale/en.json", "icon.svg", "package.json", "fonts/manifest.json", "fonts/wenkai.woff2", "fonts/serif.woff2", "fonts/sans.woff2", "fonts/LICENSE-wenkai.txt"];
           const missing = required.filter((path) => !files.has(path) || files.get(path) === 0);
           if (missing.length > 0) {
             console.error(`missing runtime files in the tarball: ${missing.join(", ")}`);
@@ -56,6 +62,11 @@ jobs:
           const client = files.get("lib/client.js");
           if (client < 50_000 || client > 400_000) {
             console.error(`lib/client.js is ${client} bytes; the inlined artwork should keep it in 50–400 KB`);
+            process.exit(1);
+          }
+          const fontBytes = ["wenkai", "serif", "sans"].reduce((sum, id) => sum + (files.get(`fonts/${id}.woff2`) ?? 0), 0);
+          if (fontBytes < 2_000_000 || fontBytes > 8_000_000) {
+            console.error(`bundled fonts total ${fontBytes} bytes; expected 2–8 MB (the committed subsets)`);
             process.exit(1);
           }
           console.log(`tarball carries all runtime files (${files.size} files, client ${client} bytes)`);

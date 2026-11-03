@@ -15,7 +15,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "src/client.template.js");
 const OUTPUT = path.join(ROOT, "lib/client.js");
 const MARKER = "/* __WALLPAPERS__ */ null";
+const FONT_MARKER = "/* __FONTS__ */ []";
+const FONT_TOKEN_MARKER = "/* __FONT_TOKENS__ */ {}";
 const MAX_WALLPAPER_BYTES = 512 * 1024;
+const MAX_BUNDLE_BYTES = 400 * 1024;
 
 async function main() {
   const manifest = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8"));
@@ -48,19 +51,46 @@ async function main() {
       thumb: await dataUri("official-light.thumb.webp"),
     },
   };
-  const output = template.replace(MARKER, JSON.stringify(wallpapers));
+  // The font list and the typography scale table are small JSON payloads; the
+  // woff2 bytes stay on the Host. A missing manifest means an install without
+  // bundled fonts, which the settings section handles (system stack only).
+  let fonts = [];
+  try {
+    const manifest = JSON.parse(await readFile(path.join(ROOT, "fonts", "manifest.json"), "utf8"));
+    fonts = (manifest.fonts ?? []).map((font) => ({
+      id: font.id,
+      family: font.family,
+      labels: font.labels,
+      sample: font.sample,
+      fallback: font.fallback,
+      file: font.file,
+      previewFile: font.previewFile,
+      bytes: font.bytes,
+      license: font.license?.name ?? "",
+    }));
+  } catch {
+    fonts = [];
+  }
+  const fontTokens = JSON.parse(await readFile(path.join(ROOT, "src", "typography.tokens.json"), "utf8"));
+
+  let output = template.replace(MARKER, JSON.stringify(wallpapers));
+  output = output.replace(FONT_MARKER, JSON.stringify(fonts));
+  output = output.replace(FONT_TOKEN_MARKER, JSON.stringify(fontTokens));
 
   // The loader keys the boot graph by package name and rejects a bundle that
   // registers under any other id.
   if (!output.includes(`id: "${manifest.name}"`)) {
     throw new Error(`build-client: client id must equal the package name "${manifest.name}"`);
   }
-  if (/__WALLPAPERS__/.test(output)) {
+  if (/__WALLPAPERS__|__FONTS__|__FONT_TOKENS__/.test(output)) {
     throw new Error("build-client: placeholder left behind in the output");
   }
 
   await writeFile(OUTPUT, output, "utf8");
   const bytes = Buffer.byteLength(output);
+  if (bytes > MAX_BUNDLE_BYTES) {
+    throw new Error(`build-client: bundle is ${bytes} bytes (> ${MAX_BUNDLE_BYTES}); trim the inlined payloads`);
+  }
   console.log(`build-client: wrote ${path.relative(ROOT, OUTPUT)} (${bytes.toLocaleString()} bytes)`);
 }
 

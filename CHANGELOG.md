@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+新增「字体」能力：三款 OFL 正文字体 + 字号缩放，都走官方 typography 变量，不重发布主题。
+
+- **三款打包字体**：霞鹜文楷（LXGW WenKai v1.530）/ 思源宋体 / 思源黑体（Google Fonts 固定 commit）。各一个字重，按 GB2312 + 拉丁 + 标点 + 全角子集化为 woff2，共约 3.7 MB；OFL 许可证全文随包分发（`fonts/licenses/`）。生僻字回退系统字体。
+- **设置页新增「字体」分区**：系统字体 + 三款字体卡片（卡片内用每款 3–6 KB 的预览子集渲染示例，不预载完整字体），点卡片即时切换；新增 90–110% 字号缩放滑杆；`config.json` 增 `fontId` / `fontScale`，走既有 PATCH/持久化路径。
+- **接入点**：Harness 的排版 token 全部经 `--dsw-font-family → var(--dsh-font-family-text, …)`，插件在 `<html>` 上设 `--dsh-font-family-text` 并注入 `@font-face`；代码块/终端保持 `--ds-font-family-code` 等宽字体，品牌字体不动。
+- **字号缩放**：从 Harness 基础样式提取 51 个可缩放排版 token（`--dsw-font-*`）与正文/代码/终端字号变量，按比例重写；只写 CSS 变量，不触发 `theme/change`，主题 presenter 在 `theme/change` 后会重写 body 字号，插件在下一帧覆盖。
+- **Host**：`/state` 增加 `fonts` 清单；新增只读 `GET|HEAD /dsh-wallpaper/fonts/<file>`，文件名必须命中 manifest（遍历/未知文件 404），`font/woff2`、`immutable` 缓存、sha256 ETag/304/HEAD；`config` 校验 `fontId`（形状）与 `fontScale`（90–110 夹取）。
+- **构建链**：`npm run fonts` 下载固定源 → fonttools 子集 → 写 `fonts/manifest.json`（含 sha256/字节）；产物提交，安装/CI 不需要 Python 或网络。`npm run fonts:check`、CI 语法/载荷/打包断言同步更新；`build-client.mjs` 内联字体清单与排版 token 表，bundle 上限 400 KB。
+- **测试**：新增客户端字体变量/缩放/dispose、未知 fontId 回退，Host 字体路由（ETag/304/HEAD/许可文件/遍历拒绝）与字体配置校验/重启持久化，共 45 条。
+- 文档：中英文 README 增字体章节、HTTP 路由、开发命令与字体许可表；已知边界补充生僻字回退、原生字体设置优先级与「字号缩放不是界面缩放」。
+
 ## 0.5.2
 
 Host 半审计（数据完整性 / 权限 / 缓存）的修复，重点是不再「返回成功但没落盘」、也不静默丢数据。
