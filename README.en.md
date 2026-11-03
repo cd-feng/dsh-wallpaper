@@ -81,13 +81,25 @@ npm run wallpapers   # regenerate the built-in art (Pillow + numpy, fixed seed)
 
 CI runs the syntax check and tests on Node 20/22 and verifies that a rebuild leaves `lib/client.js` unchanged.
 
+## Performance
+
+The wallpaper is a permanent full-viewport layer, so its cost is bounded on purpose:
+
+- **Style rebuilds** — the `body::before` rule carries two inlined WebPs (~38 KB of base64) and is rewritten only when the artwork changes. Sliders only move the `--dwp-blur` / `--dwp-scale` / `--dwp-sidebar-*` custom properties.
+- **Coalesced repaints** — every state change goes through `requestAnimationFrame`, so a 100+ Hz trackpad drag still paints at most once per frame.
+- **Token layer** — `theme.overrideTokens` restyles the whole app, so it is re-registered only when the rounded opacity actually changes.
+- **Disk** — `PATCH` is debounced by 220 ms (≈4 writes/s while dragging); uploaded images are served with `immutable` caching and a sha256 ETag, so reloads do not re-read the file.
+- **Memory** — each 2400×1500 built-in image decodes to ≈13.7 MB; only the active light/dark artwork is decoded. Blur > 0 adds a full-viewport compositor texture; the default 0 does not.
+- **Trade-off** — a large blur is the one expensive setting. Defaults are the cheapest path.
+
 ## Notes and limits
 
 - The sidebar rule `[class*="_sidebarCol"]` depends on upstream css-modules names; if upstream renames it, the sidebar simply falls back to the official colour.
+- The built-in art is regenerated with `npm run wallpapers` (needs `python3 -m pip install pillow numpy`); the committed WebPs are already generated, so a normal install never runs Python.
 - Images are stored verbatim (no recompression); a 20 MB PNG costs 20 MB on disk.
 - Uploads are whole-file POSTs with no progress bar (loopback is fast); failures surface inline in the page.
 - One active wallpaper at a time; the gallery can hold many, but one image serves both light and dark.
-- The 24 tests cover behaviour, not aesthetics.
+- The 26 tests cover behaviour, not aesthetics.
 
 ## License
 

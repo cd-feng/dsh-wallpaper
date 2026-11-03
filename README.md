@@ -71,7 +71,7 @@ target: dsh-wallpaper
 | 选择 + 滑杆值 | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` | Host 是唯一权威，浏览器只在内存里留快照 |
 | 上传的图片 | `<DSH_HOME>/dsh-wallpaper[-desktop]/images/<id>.<ext>` | 原样保存，不压缩、不转码、不上传服务器 |
 | 图片索引 | `<DSH_HOME>/dsh-wallpaper[-desktop]/library.json` | sha256（做 ETag）、尺寸、原始文件名、时间 |
-| 内置壁纸 | 打进 `lib/client.js` 的 data URI | 四张 webp（官方/极光 × 亮/暗），共约 60 KB |
+| 内置壁纸 | 打进 `lib/client.js` 的 data URI | 四张 webp（官方/极光 × 亮/暗），共约 58 KB |
 
 `<DSH_HOME>` 默认 `~/.dsh`，可用环境变量覆盖；desktop / web profile 分开存。
 
@@ -93,7 +93,7 @@ target: dsh-wallpaper
 npm run check        # 重新生成 bundle + 语法检查 + 24 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI）
-npm run wallpapers   # 用 Pillow + numpy 重画内置壁纸（固定随机种子，结果可复现）
+npm run wallpapers   # 重画内置壁纸（需 python3 + `pip install pillow numpy`；固定种子可复现）
                      # 官方款：官网同款配色 + 域扭曲 fBm 云絮；极光款：原装饰版
 ```
 
@@ -128,8 +128,21 @@ dsh-wallpaper/
 | 上传图片怎么上屏 | 存 Host 文件，客户端把 `/dsh-wallpaper/assets/<id>` 直接写进 `body::before` 的 `background-image`（同源、可缓存、无 object URL 生命周期） |
 | 重启不丢 | Host 写盘（`config.json` / `library.json` / `images/`）；浏览器侧完全不依赖 origin 级存储 |
 | 卸载即还原 | 样式表、token 层、body 标记、媒体查询监听、debounce 定时器全部注册在 `ctx.effect` 的清理里；Host 路由用 `webServer.register` 的 disposer 释放 |
-| 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 作为组件内 `<style>` 渲染 |
+| 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 在 `ctx.effect` 里注入一次，不进每次渲染 |
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
+| 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
+| Host 连不上可自愈 | 页面在宿主半未加载时给出「重试」按钮；单张图上传失败只报该文件，不会把整个图库判成不可用 |
+
+## 性能
+
+壁纸是常驻的全屏图层，所以这块专门收了口：
+
+- **样式重建**：`body::before` 的规则里带着两张内联 webp（约 38 KB base64），只在切换壁纸（官方 / 极光 / 某张自定义图）时重写一次；拖动滑杆只改 `--dwp-blur` / `--dwp-scale` / `--dwp-sidebar-*` 四个自定义属性。
+- **重绘合并**：所有状态变化走 `requestAnimationFrame` 合并，一帧最多重绘一次；快速拖动 100+ 次/秒的触控板也不会把主线程刷满。
+- **token 层**：`theme.overrideTokens` 会让整个应用重算样式，因此只在取整后的不透明度变化时重新注册（`0.01` 级别的抖动不会触发）。
+- **磁盘**：`PATCH` 有 220 ms 防抖，拖动滑杆最多约 4 次/秒落盘；上传图片走 `immutable` 缓存 + sha256 ETag，页面重载不会重复读盘。
+- **内存**：每张 2400×1500 的内置图画出来约 13.7 MB 解码位图，只有当前明暗用的那一张（加另一种配色）会被解码；模糊 > 0 会让合成器多一层全屏纹理，默认 0 时不额外建层。
+- **已知取舍**：模糊值调得越大，全屏图层重绘越贵；想要最省就用默认的 0。
 
 ## 已知边界
 
@@ -138,7 +151,7 @@ dsh-wallpaper/
 - 上传是整文件 POST，没有进度条（本地回环很快）；失败在页面行内报错。
 - 同一时刻只有一张「当前壁纸」：自定义图库可以有多张，但明暗共用一个图。
 - 「官方」是照着 deepseek.com 当前首页配色烘的静态图，官网改版不会自动跟；要跟就重跑 `npm run wallpapers` 改预设。
-- 行为测试覆盖 24 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
+- 行为测试覆盖 26 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
 
 ## License
 

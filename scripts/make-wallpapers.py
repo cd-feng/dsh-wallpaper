@@ -22,8 +22,14 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-import numpy as np
-from PIL import Image, ImageFilter
+try:
+    import numpy as np
+    from PIL import Image, ImageFilter
+except ModuleNotFoundError as error:  # pragma: no cover - environment problem
+    raise SystemExit(
+        f"make-wallpapers: missing {error.name}; install the artwork dependencies with "
+        "`python3 -m pip install pillow numpy` (the bundled DSH runtime already has both)."
+    ) from error
 
 WIDTH = 2400
 HEIGHT = 1500

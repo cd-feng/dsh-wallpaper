@@ -52,10 +52,19 @@ function createDocument() {
     removeAttribute: (name) => attributes.delete(name),
     hasAttribute: (name) => attributes.has(name),
   };
+  const rootStyle = new Map();
+  const documentElement = {
+    style: {
+      setProperty: (name, value) => rootStyle.set(name, value),
+      getPropertyValue: (name) => rootStyle.get(name) ?? "",
+      removeProperty: (name) => rootStyle.delete(name),
+    },
+  };
   return {
     document: {
       head,
       body,
+      documentElement,
       createElement(tagName) {
         const node = {
           tagName,
@@ -71,6 +80,7 @@ function createDocument() {
     },
     styleTags,
     attributes,
+    rootStyle,
   };
 }
 
@@ -129,7 +139,7 @@ function clamp(value, min, max, fallback) {
 }
 
 /** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
-function createHost({ config = {}, images = [], fail = false } = {}) {
+function createHost({ config = {}, images = [], fail = false, uploadStatus = 0 } = {}) {
   const state = {
     config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, ...config },
     images: [...images],
@@ -173,6 +183,9 @@ function createHost({ config = {}, images = [], fail = false } = {}) {
       return reply(200, { config: state.config, images: state.images });
     }
     if (path === "/dsh-wallpaper/library" && method === "POST") {
+      if (uploadStatus >= 400) {
+        return reply(uploadStatus, { error: "unsupported image format", code: "UNSUPPORTED_IMAGE" });
+      }
       counter += 1;
       const id = counter === 1 ? IMAGE_ID : IMAGE_ID_2;
       const entry = {
@@ -328,6 +341,7 @@ async function boot({ reducedTransparency = false, ...hostOptions } = {}) {
   return {
     entry: captured,
     plugin,
+    documentElement: dom.document,
     React,
     dom,
     media,
@@ -337,6 +351,8 @@ async function boot({ reducedTransparency = false, ...hostOptions } = {}) {
       React.beginRender();
       return context.registrations[0].component();
     },
+    /** Wait one animation frame: paints are rAF-batched. */
+    settle: () => delay(24),
     dispose() {
       for (const disposer of [...context.disposers].reverse()) disposer();
       globalThis.window = previous.window;
@@ -556,6 +572,7 @@ test("switching between the two built-in wallpapers repaints and persists", asyn
     (element) => element.type === "button" && element.props.className === "dwp-cardSelect" && element.props["aria-pressed"] === false,
   );
   builtin.props.onClick();
+  await app.settle();
 
   assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
   const auroraSheet = sheetOf(app).textContent;
@@ -575,9 +592,19 @@ test("switching between the two built-in wallpapers repaints and persists", asyn
 test("a slider repaints at once and writes one debounced PATCH", async () => {
   const app = await boot();
   const ranges = findAll(app.render(), (element) => element.type === "input" && element.props.type === "range");
+  const before = app.overrides.length;
+  const sheetBefore = sheetOf(app).textContent;
   ranges[0].props.onChange({ currentTarget: { value: "80" } });
   ranges[0].props.onChange({ currentTarget: { value: "85" } });
+  await app.settle();
+
+  // Both events collapse into one frame and one token-layer change.
+  assert.equal(app.overrides.length, before + 1);
   assert.equal(app.overrides.at(-1).tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.85)");
+  // The stylesheet (which carries the inlined artwork) is not rewritten, and
+  // the new values arrive as custom properties instead.
+  assert.equal(sheetOf(app).textContent, sheetBefore, "slider drag does not re-parse the artwork CSS");
+  assert.equal(app.dom.rootStyle.get("--dwp-sidebar-light"), "1");
 
   await delay(300);
   const patches = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
@@ -593,6 +620,7 @@ test("reduce-transparency pauses the wallpaper and resumes when disabled", async
   assert.equal(app.overrides.length, 0);
 
   app.media.fire(false);
+  await app.settle();
   assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "official");
   assert.equal(app.overrides.length, 1);
   app.dispose();
@@ -605,5 +633,36 @@ test("the locale service is never called detached", async () => {
   // registering the label thunk or rendering the page.
   assert.doesNotThrow(() => app.render());
   assert.ok(allText(app.render()).includes("壁纸"));
+  app.dispose();
+});
+
+test("a rejected upload keeps the library usable instead of reporting an unreachable Host", async () => {
+  const app = await boot({ uploadStatus: 415 });
+  let tree = app.render();
+  const fileInput = findAll(tree, (element) => element.type === "input" && element.props.type === "file")[0];
+  fileInput.props.onChange({
+    currentTarget: { files: [{ name: "broken.png", type: "image/png", size: 2048 }], value: "" },
+  });
+  await delay(50);
+
+  tree = app.render();
+  const text = allText(tree);
+  assert.ok(text.includes("这些文件没有导入"), "the per-file error is shown");
+  assert.ok(!text.includes("壁纸服务还没启动"), "a 415 is not a missing Host half");
+  assert.ok(cardNames(tree).includes("极光"), "the built-in cards still render");
+  app.dispose();
+});
+
+test("the unreachable-Host message offers a retry that reloads the state", async () => {
+  const app = await boot({ fail: true });
+  let tree = app.render();
+  const retry = findAll(tree, (element) => element.type === "button" && element.props.className === "dwp-btn").find(
+    (element) => collectText(element).join("") === "重试",
+  );
+  assert.ok(retry, "retry button is rendered");
+  const before = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/state").length;
+  retry.props.onClick();
+  await delay(30);
+  assert.equal(app.host.calls.filter((call) => call.path === "/dsh-wallpaper/state").length, before + 1);
   app.dispose();
 });

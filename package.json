@@ -1,6 +1,6 @@
 {
   "name": "dsh-wallpaper",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Replace the Harness solid background with a wallpaper: built-in aurora art or your own images, stored host-side so they survive restarts.",
   "type": "module",
   "main": "lib/index.js",

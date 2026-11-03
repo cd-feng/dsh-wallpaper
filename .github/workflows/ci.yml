@@ -26,6 +26,8 @@ jobs:
         run: |
           node --check lib/index.js
           node --check lib/client.js
+          node --check src/client.template.js
+          python3 -m py_compile scripts/make-wallpapers.py
 
       - name: Behaviour tests
         run: npm test
@@ -35,3 +37,7 @@ jobs:
         run: |
           node scripts/build-client.mjs
           git diff --exit-code -- lib/client.js
+
+      - name: Publishable file list
+        if: matrix.node == 22
+        run: npm pack --dry-run
