@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "壁纸",
-    "description": "把 Harness 的纯色底换成壁纸：内置极光图随明暗切换，也可以上传本机图片。图片与选择由 Host 存在本机 DSH 数据目录，重启不丢、不上传服务器。"
+    "description": "把 Harness 的纯色底换成壁纸：默认「官方」复刻 deepseek.com 首页的云海与细网格，另有「极光」和本机图片上传。图片与选择由 Host 存在本机 DSH 数据目录，重启不丢。"
   }
 }

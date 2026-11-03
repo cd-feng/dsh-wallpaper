@@ -131,7 +131,7 @@ function clamp(value, min, max, fallback) {
 /** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
 function createHost({ config = {}, images = [], fail = false } = {}) {
   const state = {
-    config: { mode: "builtin", customId: null, panelOpacity: 52, blur: 0, ...config },
+    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, ...config },
     images: [...images],
   };
   const calls = [];
@@ -144,7 +144,7 @@ function createHost({ config = {}, images = [], fail = false } = {}) {
     if (mode !== "official" && mode !== "builtin" && mode !== "custom") mode = "builtin";
     const customId =
       typeof source.customId === "string" && knownIds().has(source.customId) ? source.customId : null;
-    if (mode === "custom" && customId === null) mode = "builtin";
+    if (mode === "custom" && customId === null) mode = "official";
     return {
       mode,
       customId,
@@ -404,13 +404,16 @@ test("registers under the package name", async () => {
   app.dispose();
 });
 
-test("defaults to the built-in wallpaper and cleans up on dispose", async () => {
+test("defaults to the official-style wallpaper and cleans up on dispose", async () => {
   const app = await boot();
-  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "official");
   const sheet = sheetOf(app);
   assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]\{background-color:transparent/);
   assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]::before\{content:""/);
   assert.match(sheet.textContent, /data:image\/webp;base64,/);
+  // The official look carries the deepseek.com fine grid as extra CSS layers.
+  assert.match(sheet.textContent, /repeating-linear-gradient\(0deg/);
+  assert.match(sheet.textContent, /background-size:auto,auto,cover/);
   assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]\[data-ds-dark-theme\]::before\{content:""/);
   assert.match(sheet.textContent, /_sidebarCol/);
 
@@ -444,9 +447,9 @@ test("a Host-selected custom image becomes the wallpaper", async () => {
   app.dispose();
 });
 
-test("an unreachable Host half keeps the built-in look and explains the restart", async () => {
+test("an unreachable Host half keeps the default look and explains the restart", async () => {
   const app = await boot({ fail: true });
-  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "official");
   const tree = app.render();
   assert.ok(allText(tree).includes("壁纸服务还没启动"), "page explains the missing Host half");
   const upload = findAll(tree, (element) => element.type === "button" && element.props.className === "dwp-btn")[0];
@@ -469,7 +472,7 @@ test("the page renders localized copy, the upload input and both sliders", async
   const app = await boot();
   const tree = app.render();
   const text = allText(tree);
-  for (const expected of ["壁纸", "背景", "官方纯色", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "背景模糊", "恢复默认"]) {
+  for (const expected of ["壁纸", "背景", "官方", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "背景模糊", "恢复默认"]) {
     assert.ok(text.includes(expected), `page copy includes ${expected}`);
   }
   const fileInputs = findAll(tree, (element) => element.type === "input" && element.props.type === "file");
@@ -479,7 +482,7 @@ test("the page renders localized copy, the upload input and both sliders", async
   const ranges = findAll(tree, (element) => element.type === "input" && element.props.type === "range");
   assert.deepEqual(ranges.map((range) => range.props.min), [20, 0]);
   assert.deepEqual(ranges.map((range) => range.props.max), [100, 24]);
-  assert.deepEqual(cardNames(tree), ["官方纯色", "极光"]);
+  assert.deepEqual(cardNames(tree), ["官方", "极光"]);
   app.dispose();
 });
 
@@ -536,31 +539,38 @@ test("deleting the selected image falls back to the built-in wallpaper", async (
 
   assert.ok(app.host.calls.find((call) => call.method === "DELETE"), "delete reached the Host");
   assert.equal(app.host.state.images.length, 0);
-  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
-  assert.deepEqual(cardNames(app.render()), ["官方纯色", "极光"]);
+  // Deleting the selected image falls back to the default wallpaper (official).
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "official");
+  assert.deepEqual(cardNames(app.render()), ["官方", "极光"]);
   app.dispose();
 });
 
-test("official mode wins the immediate paint and persists through a debounced PATCH", async () => {
+test("switching between the two built-in wallpapers repaints and persists", async () => {
   const app = await boot();
-  const tree = app.render();
-  const official = findAll(
-    tree,
+  const officialSheet = sheetOf(app).textContent;
+  assert.match(officialSheet, /repeating-linear-gradient\(0deg/);
+
+  // The only card not currently selected is the aurora one.
+  const [builtin] = findAll(
+    app.render(),
     (element) => element.type === "button" && element.props.className === "dwp-cardSelect" && element.props["aria-pressed"] === false,
   );
-  official[0].props.onClick();
+  builtin.props.onClick();
 
-  assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
-  assert.equal(sheetOf(app).textContent, "");
-  assert.equal(app.released.at(-1), "dsh-wallpaper");
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  const auroraSheet = sheetOf(app).textContent;
+  assert.doesNotMatch(auroraSheet, /repeating-linear-gradient/);
+  assert.notEqual(auroraSheet, officialSheet, "aurora paints different art than the official pair");
+  assert.match(auroraSheet, /data:image\/webp;base64,/);
 
   await delay(300);
   const patch = app.host.calls.find((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
   assert.ok(patch, "preference was written back");
-  assert.equal(JSON.parse(String(patch.init.body)).mode, "official");
-  assert.equal(app.host.state.config.mode, "official");
+  assert.equal(JSON.parse(String(patch.init.body)).mode, "builtin");
+  assert.equal(app.host.state.config.mode, "builtin");
   app.dispose();
 });
+
 
 test("a slider repaints at once and writes one debounced PATCH", async () => {
   const app = await boot();
@@ -583,7 +593,7 @@ test("reduce-transparency pauses the wallpaper and resumes when disabled", async
   assert.equal(app.overrides.length, 0);
 
   app.media.fire(false);
-  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "official");
   assert.equal(app.overrides.length, 1);
   app.dispose();
   assert.equal(app.media.handlerCount(), 0);

@@ -40,9 +40,9 @@ window.__ModuleLoader__.load({
     const BLUR_MIN = 0;
     const BLUR_MAX = 24;
     const PERSIST_DELAY = 220;
-    const DEFAULTS = Object.freeze({ mode: "builtin", customId: null, panelOpacity: 52, blur: 0 });
+    const DEFAULTS = Object.freeze({ mode: "official", customId: null, panelOpacity: 52, blur: 0 });
 
-    // Injected by scripts/build-client.mjs: { light: dataURI, dark: dataURI }.
+    // Injected by scripts/build-client.mjs: { aurora: { light, dark }, official: { light, dark } }.
     const WALLPAPERS = /* __WALLPAPERS__ */ null;
 
     // ---------------------------------------------------------------- locale
@@ -50,12 +50,12 @@ window.__ModuleLoader__.load({
     const ZH = {
       nav: "壁纸",
       title: "壁纸",
-      intro: "把官方纯色背景换成壁纸。上传的图片保存在本机 DSH 数据目录，不会上传到服务器。",
+      intro: "内置「官方」与「极光」两套壁纸，也可以上传自己的图片。上传的图片保存在本机 DSH 数据目录，不会上传到服务器。",
       sectionBackground: "背景",
       sectionMine: "我的图片",
       sectionDisplay: "显示",
-      optionOfficial: "官方纯色",
-      optionOfficialDesc: "恢复官方外观",
+      optionOfficial: "官方",
+      optionOfficialDesc: "deepseek.com 首页的云海底纹",
       optionBuiltin: "极光",
       optionBuiltinDesc: "随明暗自动切换",
       selected: "使用中",
@@ -86,12 +86,12 @@ window.__ModuleLoader__.load({
     const EN = {
       nav: "Wallpaper",
       title: "Wallpaper",
-      intro: "Replace the solid background with a wallpaper. Uploaded images live in the local DSH data directory and are never uploaded to a server.",
+      intro: "Two built-in wallpapers — the official deepseek.com clouds and an aurora — or your own images. Uploads live in the local DSH data directory and never leave this machine.",
       sectionBackground: "Background",
       sectionMine: "My images",
       sectionDisplay: "Display",
-      optionOfficial: "Official solid",
-      optionOfficialDesc: "Back to the official look",
+      optionOfficial: "Official",
+      optionOfficialDesc: "The deepseek.com homepage clouds",
       optionBuiltin: "Aurora",
       optionBuiltinDesc: "Switches with light / dark",
       selected: "In use",
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
       let mode = source.mode;
       if (mode !== "official" && mode !== "builtin" && mode !== "custom") mode = DEFAULTS.mode;
       const customId = typeof source.customId === "string" && ASSET_ID.test(source.customId) ? source.customId : null;
-      if (mode === "custom" && customId === null) mode = "builtin";
+      if (mode === "custom" && customId === null) mode = DEFAULTS.mode;
       return {
         mode,
         customId,
@@ -347,20 +347,44 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function builtinPair(mode) {
+      // 「官方」复刻 deepseek.com 首页的云海底纹；极光是另一套内置壁纸。
+      return mode === "official" ? WALLPAPERS.official : WALLPAPERS.aurora;
+    }
+
     function wallpaperUrls(state, customUrl) {
       if (state.mode === "custom" && customUrl !== null) {
         return { light: customUrl, dark: customUrl };
       }
       // 自定义图还没读到、或选择失效时，先用内置图占位。
-      return { light: WALLPAPERS.light, dark: WALLPAPERS.dark };
+      return builtinPair(state.mode);
     }
 
-    function layerRule(image, state) {
+    const GRID_CELL = 56;
+    const GRID_LINE_LIGHT = "rgba(30, 41, 59, 0.055)";
+    const GRID_LINE_DARK = "rgba(255, 255, 255, 0.07)";
+
+    /**
+     * The官网背景的细网格：烘焙进位图会在缩放时起摩尔纹，所以用 CSS 重复渐变叠在
+     * 图片之上（第一层在最上面），任意 DPI 都是 1px 实线。
+     */
+    function gridLayers(line) {
+      return [
+        `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px ${GRID_CELL}px)`,
+        `repeating-linear-gradient(90deg, ${line} 0 1px, transparent 1px ${GRID_CELL}px)`,
+      ];
+    }
+
+    function layerRule(image, state, layers) {
       const scale = state.blur > 0 ? "scale(1.03)" : "scale(1)";
+      const extras = layers ?? [];
+      const layersCss = [...extras, `url("${image}")`];
       return [
         `content:"";position:fixed;inset:0;z-index:-1;pointer-events:none`,
-        `background-image:url("${image}")`,
-        `background-size:cover;background-position:center;background-repeat:no-repeat`,
+        `background-image:${layersCss.join(",")}`,
+        `background-size:${[...extras.map(() => "auto"), "cover"].join(",")}`,
+        `background-position:${[...extras.map(() => "0 0"), "center"].join(",")}`,
+        `background-repeat:${[...extras.map(() => "repeat"), "no-repeat"].join(",")}`,
         `filter:blur(${state.blur}px);transform:${scale}`,
       ].join(";");
     }
@@ -373,15 +397,18 @@ window.__ModuleLoader__.load({
       const sidebarGradientLight =
         "linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.4) 100%)";
       const sidebarGradientDark = "linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.25) 100%)";
+      const grid = state.mode === "official";
       const rules = [
         // body 自己的不透明底色必须让位；html/body 的官方样式在 macOS 上本来就是透明。
         `body[${BODY_ATTR}]{background-color:transparent}`,
-        `body[${BODY_ATTR}]::before{${layerRule(urls.light, state)}}`,
+        `body[${BODY_ATTR}]::before{${layerRule(urls.light, state, grid ? gridLayers(GRID_LINE_LIGHT) : [])}}`,
         // 侧栏有自己的填充令牌和渐变，单独给一层半透明。
         `body[${BODY_ATTR}] [class*="_sidebarCol"]{background:${sidebarGradientLight},rgba(249, 250, 251, ${sidebarLight})}`,
       ];
       if (urls.dark !== urls.light) {
-        rules.push(`body[${BODY_ATTR}][data-ds-dark-theme]::before{${layerRule(urls.dark, state)}}`);
+        rules.push(
+          `body[${BODY_ATTR}][data-ds-dark-theme]::before{${layerRule(urls.dark, state, grid ? gridLayers(GRID_LINE_DARK) : [])}}`,
+        );
       }
       rules.push(
         `body[${BODY_ATTR}][data-ds-dark-theme] [class*="_sidebarCol"]{background:${sidebarGradientDark},rgba(27, 27, 28, ${sidebarDark})}`,
@@ -405,7 +432,6 @@ window.__ModuleLoader__.load({
       ".dwp-cardSelect{appearance:none;display:flex;flex-direction:column;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer}",
       ".dwp-cardSelect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
       ".dwp-thumb{display:block;aspect-ratio:16/10;background-size:cover;background-position:center;background-repeat:no-repeat}",
-      ".dwp-thumbSolid{background-image:linear-gradient(90deg,#fbfbfc 0%,#fbfbfc 50%,#151517 50%,#151517 100%)}",
       ".dwp-cardLabel{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;min-height:20px;font-size:11px;color:var(--dsw-alias-label-secondary)}",
       ".dwp-cardName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".dwp-badge{flex:0 0 auto;font-size:10px;color:var(--dsw-alias-brand-primary);border:1px solid var(--dsw-alias-brand-primary);border-radius:999px;padding:0 6px}",
@@ -548,7 +574,7 @@ window.__ModuleLoader__.load({
           name: t("optionBuiltin"),
           title: t("optionBuiltinDesc"),
           selected: selectedBuiltin,
-          thumbStyle: { backgroundImage: `url("${WALLPAPERS.dark}")` },
+          thumbStyle: { backgroundImage: `url("${WALLPAPERS.aurora.dark}")` },
           onSelect: () => store.set({ mode: "builtin" }),
         });
 
@@ -557,7 +583,7 @@ window.__ModuleLoader__.load({
           name: t("optionOfficial"),
           title: t("optionOfficialDesc"),
           selected: selectedOfficial,
-          thumbClass: "dwp-thumbSolid",
+          thumbStyle: { backgroundImage: `url("${WALLPAPERS.official.light}")` },
           onSelect: () => store.set({ mode: "official" }),
         });
 
@@ -719,7 +745,7 @@ window.__ModuleLoader__.load({
 
         const paint = () => {
           const state = store.get();
-          const active = state.mode !== "official" && !reducedTransparency();
+          const active = !reducedTransparency();
           if (!active) {
             detach();
             doc.body.removeAttribute(BODY_ATTR);

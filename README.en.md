@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships built-in aurora art, user uploads, panel opacity and background blur.
+Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: blue sky band, warped fBm clouds, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur.
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -10,8 +10,9 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 ## Features
 
 - **Works out of the box** — the browser bundle (`lib/client.js`) is committed; the built-in art is inlined as data URIs.
+- **Official look** — palette from the real site (`#9cc1e7` band over `#f9f8f8`), cloudy wisps baked with domain-warped fBm, and the fine grid drawn with `repeating-linear-gradient` so it stays 1px at any DPI.
 - **Uses the official theme mechanism** — `ctx.theme.overrideTokens()` turns `--dsw-alias-bg-base` translucent and a fixed `body::before` layer paints the image. Disabling or uninstalling the plugin rolls everything back.
-- **Light/dark aware** — the built-in aurora has a light and a dark variant and follows the app theme. Uploaded images are used for both.
+- **Light/dark aware** — both built-in wallpapers have light and dark variants that follow the app theme. Uploaded images are used for both.
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
@@ -41,7 +42,7 @@ Uninstall with `plugin_manager` `remove_bundle` (`target: dsh-wallpaper`); the i
 
 `Settings → Wallpaper` (order 5):
 
-- **Background** — official solid colour / built-in aurora
+- **Background** — Official (default, the deepseek.com clouds + grid) / Aurora
 - **My images** — upload, click a card to apply, two-step delete
 - **Display** — panel opacity (20–100 %), background blur (0–24 px)
 - **Reset to defaults**

@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置极光图、上传自己的图片、调面板通透度和背景模糊。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置「官方」（复刻 [deepseek.com](https://www.deepseek.com/) 首页的云海底纹 + 细网格，默认）与「极光」两套，也能上传自己的图片，并可调面板通透度与背景模糊。
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -9,8 +9,9 @@
 ## 特性
 
 - **装完即用**：`lib/client.js` 已生成并随包提交；内置壁纸以 data URI 内联，不额外起资源路由。
+- **官方同款**：默认壁纸照着 deepseek.com 首页烤的——`#9cc1e7 → 透明` 的蓝色天幕、域扭曲 fBm 云絮、中心亮斑，网格用 CSS 重复渐变叠（不烘进位图，缩放不起摩尔纹）。
 - **官方机制上屏**：`ctx.theme.overrideTokens()` 把 `--dsw-alias-bg-base` 换成半透明 rgba，`body::before` 固定层画图；插件禁用/卸载时全部自动回滚，不留脏样式。
-- **跟随明暗**：内置壁纸亮色、深色各一张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
+- **跟随明暗**：每套内置壁纸都有亮色、深色两张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
 - **上传自己的图**：PNG / JPEG / WebP / GIF / AVIF，≤20 MB，多选，两段式删除。
 - **重启不丢**：Desktop 版是 `--port 0`，每次启动浏览器 origin 都变，所以图片与选择存在 **Host 侧**（`<DSH_HOME>/dsh-wallpaper-desktop/`），不用 localStorage / IndexedDB。
@@ -56,7 +57,7 @@ target: dsh-wallpaper
 
 `设置 → 壁纸`（order 5，与「通用」同级）
 
-- **背景**：官方纯色 / 极光（内置，随明暗切换）
+- **背景**：官方（默认，deepseek.com 首页云海 + 细网格）/ 极光（随明暗切换）
 - **我的图片**：上传、点卡片设为壁纸、两段式删除
 - **显示**：面板不透明度（20–100%）、背景模糊（0–24px）
 - **恢复默认**
@@ -70,7 +71,7 @@ target: dsh-wallpaper
 | 选择 + 滑杆值 | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` | Host 是唯一权威，浏览器只在内存里留快照 |
 | 上传的图片 | `<DSH_HOME>/dsh-wallpaper[-desktop]/images/<id>.<ext>` | 原样保存，不压缩、不转码、不上传服务器 |
 | 图片索引 | `<DSH_HOME>/dsh-wallpaper[-desktop]/library.json` | sha256（做 ETag）、尺寸、原始文件名、时间 |
-| 内置壁纸 | 打进 `lib/client.js` 的 data URI | 不占磁盘 |
+| 内置壁纸 | 打进 `lib/client.js` 的 data URI | 四张 webp（官方/极光 × 亮/暗），共约 60 KB |
 
 `<DSH_HOME>` 默认 `~/.dsh`，可用环境变量覆盖；desktop / web profile 分开存。
 
@@ -93,6 +94,7 @@ npm run check        # 重新生成 bundle + 语法检查 + 24 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI）
 npm run wallpapers   # 用 Pillow + numpy 重画内置壁纸（固定随机种子，结果可复现）
+                     # 官方款：官网同款配色 + 域扭曲 fBm 云絮；极光款：原装饰版
 ```
 
 CI 在 Node 20 / 22 上跑语法检查与测试，并校验重建后的 `lib/client.js` 与提交内容一致（防止忘记 `npm run build`）。
@@ -111,7 +113,7 @@ dsh-wallpaper/
 ├── tests/client-behavior.test.mjs   # 浏览器半行为测试（假 DOM / React / fetch）
 ├── tests/host-routes.test.mjs       # Host 路由、fence、上传校验、重启持久性
 ├── locale/{zh,en}.json          # 插件市场标题/描述 + 设置页文案
-├── wallpapers/                  # aurora-light.webp / aurora-dark.webp（2400×1500，14/20 KB）
+├── wallpapers/                  # official-*.webp / aurora-*.webp（2400×1500，12–21 KB）
 └── icon.svg                     # 插件图标
 ```
 
@@ -121,6 +123,7 @@ dsh-wallpaper/
 |---|---|
 | 官方「纯色背景」是谁画的 | 会话列 `_centerCol` / 底部行 `.bottomRow` 用 `--dsw-alias-bg-base`；侧栏 `_sidebarCol` 用自己的填充令牌，macOS 下还带 40% 透明渐变 |
 | 壁纸放在哪 | `body::before`：`position:fixed; inset:0; z-index:-1; pointer-events:none`，在全部内容之下、画布之上 |
+| 官网页面的云海与网格 | 云海烤成 webp（deepseek.com 的 `#9cc1e7` 天幕 + 流场粒子 → 静态 fBm）；网格是 CSS 的两条 `repeating-linear-gradient`，叠在图片上方的背景层，任意 DPI 都是 1px |
 | 让壁纸透出来 | `theme.overrideTokens('dsh-wallpaper', { '--dsw-alias-bg-base': { light, dark } })`；侧栏另用 `[class*="_sidebarCol"]` 规则覆盖 |
 | 上传图片怎么上屏 | 存 Host 文件，客户端把 `/dsh-wallpaper/assets/<id>` 直接写进 `body::before` 的 `background-image`（同源、可缓存、无 object URL 生命周期） |
 | 重启不丢 | Host 写盘（`config.json` / `library.json` / `images/`）；浏览器侧完全不依赖 origin 级存储 |
@@ -134,6 +137,7 @@ dsh-wallpaper/
 - 图片原样保存不压缩，接近 20 MB 的图会占磁盘；显示层用 `background-size:cover` 缩放。
 - 上传是整文件 POST，没有进度条（本地回环很快）；失败在页面行内报错。
 - 同一时刻只有一张「当前壁纸」：自定义图库可以有多张，但明暗共用一个图。
+- 「官方」是照着 deepseek.com 当前首页配色烘的静态图，官网改版不会自动跟；要跟就重跑 `npm run wallpapers` 改预设。
 - 行为测试覆盖 24 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
 
 ## License

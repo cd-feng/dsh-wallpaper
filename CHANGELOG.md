@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- New **Official** built-in wallpaper: a static bake of the deepseek.com homepage hero — the `linear-gradient(180deg, #9cc1e7, transparent)` sky band over the `#f9f8f8` page colour, domain-warped fBm clouds (the site's masked flow-field canvas), a centre halo, and the fine grid drawn in CSS so it stays crisp at any DPI. Light and dark variants.
+- **Official is now the default** wallpaper (`mode: "official"`), and both halves fall back to it when a selected custom image disappears.
+- The aurora pair remains as the second built-in option; the settings page cards show the real thumbnails.
+- `npm run wallpapers` generates four presets from fixed seeds; the bundle grows to ~113 KB.
+
 ## 0.3.0
 
 - Uploaded images and the selection now live on the **Host** side (`<DSH_HOME>/dsh-wallpaper[-desktop]/`) instead of IndexedDB/localStorage. Desktop launches the Web server on a random port, so the browser origin changes on every restart and former browser storage silently disappeared.

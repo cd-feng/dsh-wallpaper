@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Generate the two built-in wallpapers (light + dark) for dsh-wallpaper.
+"""Generate the built-in wallpapers for dsh-wallpaper.
 
-The artwork is deterministic (fixed seed per palette), soft and low-contrast on
-purpose: the app draws translucent panels over it, so busy detail would fight
-the conversation text. Output: wallpapers/<name>.webp at 2400x1500 (16:10,
-cropped by `background-size: cover`).
+Two families, deterministic (fixed seed) and low-contrast on purpose, because
+the app draws translucent panels over them:
+
+- `aurora-*`  — the original decorative pair.
+- `official-*` — a static bake of the DeepSeek homepage hero: the site paints a
+  `linear-gradient(180deg, #9cc1e7, transparent)` band plus a masked flow-field
+  canvas, which together read as soft blue wisps. We keep the palette and the
+  band, replace the live canvas with domain-warped fBm noise, and leave the fine
+  grid to CSS (crisp at any DPI instead of moiré in a bitmap).
+
+Output: wallpapers/<name>.webp at 2400x1500 (16:10, cropped by
+`background-size: cover`).
 
 Run: python3 scripts/make-wallpapers.py
 """
@@ -96,6 +104,140 @@ def smooth_field(
     return field
 
 
+def value_noise(width: int, height: int, cells_x: int, cells_y: int, rng: np.random.Generator) -> np.ndarray:
+    """Smooth value noise: a random coarse grid, smoothly interpolated to pixels."""
+    grid = rng.random((cells_y + 1, cells_x + 1)).astype(np.float32)
+    xs = np.linspace(0.0, cells_x, width, dtype=np.float32)
+    ys = np.linspace(0.0, cells_y, height, dtype=np.float32)
+    x0 = np.floor(xs).astype(np.int32)
+    y0 = np.floor(ys).astype(np.int32)
+    x1 = np.minimum(x0 + 1, cells_x)
+    y1 = np.minimum(y0 + 1, cells_y)
+    tx = xs - x0
+    ty = ys - y0
+    tx = tx * tx * (3.0 - 2.0 * tx)
+    ty = ty * ty * (3.0 - 2.0 * ty)
+    g00 = grid[np.ix_(y0, x0)]
+    g10 = grid[np.ix_(y0, x1)]
+    g01 = grid[np.ix_(y1, x0)]
+    g11 = grid[np.ix_(y1, x1)]
+    tx = tx[None, :]
+    ty = ty[:, None]
+    top = g00 * (1.0 - tx) + g10 * tx
+    bottom = g01 * (1.0 - tx) + g11 * tx
+    return top * (1.0 - ty) + bottom * ty
+
+
+def fbm(width: int, height: int, *, seed: int, octaves: int, cells: float, persistence: float = 0.5) -> np.ndarray:
+    """Fractal sum of value noise, normalised to [0, 1]."""
+    rng = np.random.default_rng(seed)
+    total = np.zeros((height, width), dtype=np.float32)
+    amplitude = 1.0
+    total_amplitude = 0.0
+    frequency = cells
+    for _ in range(octaves):
+        total += amplitude * value_noise(
+            width, height,
+            max(2, int(round(frequency * width / max(height, 1)))),
+            max(2, int(round(frequency))),
+            rng,
+        )
+        total_amplitude += amplitude
+        amplitude *= persistence
+        frequency *= 2.0
+    return total / total_amplitude
+
+
+def warp_field(base: np.ndarray, *, seed: int, strength: float, cells: float) -> np.ndarray:
+    """Domain-warp a [0,1] field so the noise reads as wisps instead of blobs."""
+    height, width = base.shape
+    dx = (fbm(width, height, seed=seed + 1, octaves=2, cells=cells) - 0.5) * 2.0
+    dy = (fbm(width, height, seed=seed + 2, octaves=2, cells=cells) - 0.5) * 2.0
+    ys = np.arange(height, dtype=np.float32)[:, None]
+    xs = np.arange(width, dtype=np.float32)[None, :]
+    sample_x = np.clip(xs + dx * strength, 0, width - 1).astype(np.int32)
+    sample_y = np.clip(ys + dy * strength, 0, height - 1).astype(np.int32)
+    warped = base[sample_y, sample_x]
+    # Light second pass of contrast so the wisps keep soft shoulders.
+    return warped * 0.75 + base * 0.25
+
+
+def official_field(
+    *,
+    seed: int,
+    top: tuple[float, float, float],
+    bottom: tuple[float, float, float],
+    hero_color: tuple[float, float, float],
+    hero_strength: float,
+    hero_fade: float,
+    wing_color: tuple[float, float, float],
+    wing_strength: float,
+    glow_color: tuple[float, float, float],
+    glow_strength: float,
+    cloud_color: tuple[float, float, float],
+    cloud_strength: float,
+    vignette_color: tuple[float, float, float],
+    vignette_strength: float,
+    cells: float,
+    warp: float,
+) -> np.ndarray:
+    """Bake the DeepSeek homepage hero look (blue band + wisps + centre glow)."""
+    width, height = FIELD_WIDTH, FIELD_HEIGHT
+    rng = np.random.default_rng(seed)
+    field = vertical_gradient(
+        width, height,
+        np.array(top, dtype=np.float32),
+        np.array(bottom, dtype=np.float32),
+    )
+
+    def mix(mask: np.ndarray, color: tuple[float, float, float], strength: float) -> None:
+        nonlocal field
+        amount = np.clip(mask * strength, 0.0, 1.0)[:, :, None]
+        rgb = np.array(color, dtype=np.float32)
+        field = field * (1.0 - amount) + rgb * amount
+
+    # The site's hero band: blue at the very top, gone by mid-page. Modulated by
+    # a coarse noise so its lower edge reads as weather, not as a gradient stop.
+    ys = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
+    band = np.clip(1.0 - ys / hero_fade, 0.0, 1.0) ** 1.15
+    band_edge = fbm(width, height, seed=seed + 3, octaves=3, cells=2.4) * 0.5 + 0.5
+    band = band * (0.55 + 0.75 * band_edge)
+    mix(band, hero_color, hero_strength)
+
+    # Blue wings left/right of the centre, where the flow field pools.
+    wings = np.zeros((height, width), dtype=np.float32)
+    xs = np.linspace(0.0, 1.0, width, dtype=np.float32)[None, :]
+    wings += gaussian_blob(width, height, 0.02 * width, 0.45 * height, 0.30 * width, 0.42 * height)
+    wings += gaussian_blob(width, height, 0.98 * width, 0.34 * height, 0.28 * width, 0.38 * height)
+    wings += gaussian_blob(width, height, 0.74 * width, 0.86 * height, 0.34 * width, 0.30 * height)
+    mix(wings, wing_color, wing_strength)
+
+    # Wisps: two warped fBm passes, one broad and soft, one finer for texture.
+    for pass_cells, pass_strength, pass_seed in (
+        (cells * 0.42, cloud_strength * 0.85, seed + 5),
+        (cells, cloud_strength, seed + 7),
+    ):
+        noise = fbm(width, height, seed=pass_seed, octaves=4, cells=pass_cells)
+        noise = warp_field(noise, seed=pass_seed + 11, strength=warp, cells=max(pass_cells * 0.6, 2.0))
+        wisp = np.clip((noise - 0.42) * 2.6, 0.0, 1.0)
+        wisp *= 0.45 + 0.75 * np.clip(1.25 - ys, 0.0, 1.0)
+        mix(wisp, cloud_color, pass_strength)
+
+    # Centre halo: the page keeps its content area bright.
+    halo = np.zeros((height, width), dtype=np.float32)
+    halo += gaussian_blob(width, height, 0.50 * width, 0.56 * height, 0.56 * width, 0.50 * height)
+    mix(halo, glow_color, glow_strength)
+
+    # Corner tint instead of a darkening vignette: keeps the pastel reading.
+    radius = np.sqrt(
+        (np.linspace(-1, 1, width, dtype=np.float32)[None, :] ** 2)
+        + (np.linspace(-1, 1, height, dtype=np.float32)[:, None] ** 2)
+    ) / math.sqrt(2.0)
+    corners = np.clip((radius - 0.45) / 0.55, 0.0, 1.0) ** 1.8
+    mix(corners, vignette_color, vignette_strength)
+    return field
+
+
 def add_grain(field: np.ndarray, *, seed: int, amount: float) -> np.ndarray:
     rng = np.random.default_rng(seed)
     noise = rng.normal(0.0, 1.0, (HEIGHT, WIDTH)).astype(np.float32)
@@ -116,7 +258,11 @@ def vignette(field: np.ndarray, *, strength: float, feather: float) -> np.ndarra
 
 def render(name: str, **preset) -> Path:
     seed = preset.pop("seed")
-    field = smooth_field(**preset.pop("field"))
+    field = preset.pop("field")
+    if preset.pop("official", False):
+        field = official_field(**field)
+    else:
+        field = smooth_field(**field)
     # Pillow has no floating-point RGB mode, so upscale each channel as "F".
     field = np.stack(
         [
@@ -189,10 +335,67 @@ LIGHT_PRESET = {
 }
 
 
+OFFICIAL_DARK_PRESET = {
+    "seed": 20261105,
+    "official": True,
+    "field": {
+        "seed": 20261105,
+        # DeepSeek's own palette: #0a0a0a page under a #4d6bfe-tinted band.
+        "top": (0.043, 0.047, 0.055),
+        "bottom": (0.060, 0.066, 0.080),
+        "hero_color": (0.26, 0.36, 0.56),
+        "hero_strength": 0.62,
+        "hero_fade": 0.55,
+        "wing_color": (0.17, 0.23, 0.38),
+        "wing_strength": 0.48,
+        "glow_color": (0.105, 0.115, 0.135),
+        "glow_strength": 0.80,
+        "cloud_color": (0.30, 0.38, 0.56),
+        "cloud_strength": 0.30,
+        "vignette_color": (0.035, 0.037, 0.042),
+        "vignette_strength": 0.55,
+        "cells": 4.0,
+        "warp": 34.0,
+    },
+    "grain": {"amount": 0.006},
+    "vignette": {"strength": 0.0, "feather": 0.5},
+}
+
+OFFICIAL_LIGHT_PRESET = {
+    "seed": 20261106,
+    "official": True,
+    "field": {
+        "seed": 20261106,
+        # Top band from the site (#9cc1e7), page base #f9f8f8, white centre.
+        "top": (0.965, 0.974, 0.986),
+        "bottom": (0.945, 0.956, 0.975),
+        "hero_color": (0.600, 0.730, 0.890),
+        "hero_strength": 0.58,
+        "hero_fade": 0.55,
+        "wing_color": (0.650, 0.760, 0.905),
+        "wing_strength": 0.42,
+        "glow_color": (1.0, 1.0, 1.0),
+        "glow_strength": 0.42,
+        "cloud_color": (0.600, 0.720, 0.900),
+        "cloud_strength": 0.30,
+        "vignette_color": (0.720, 0.790, 0.900),
+        "vignette_strength": 0.24,
+        "cells": 3.0,
+        "warp": 50.0,
+    },
+    "grain": {"amount": 0.005},
+    "vignette": {"strength": 0.0, "feather": 0.5},
+}
+
+
 def main() -> None:
-    for name in ("aurora-dark", "aurora-light"):
-        preset = dict(DARK_PRESET if name.endswith("dark") else LIGHT_PRESET)
-        path = render(name, **preset)
+    for name, preset in (
+        ("aurora-dark", DARK_PRESET),
+        ("aurora-light", LIGHT_PRESET),
+        ("official-dark", OFFICIAL_DARK_PRESET),
+        ("official-light", OFFICIAL_LIGHT_PRESET),
+    ):
+        path = render(name, **dict(preset))
         print(f"{path.name}: {path.stat().st_size:,} bytes")
 
 

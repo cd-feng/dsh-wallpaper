@@ -152,7 +152,7 @@ test("starts with defaults and creates the data files", async () => {
   const response = await state(app);
   assert.equal(response.status, 200);
   assert.deepEqual(response.json(), {
-    config: { mode: "builtin", customId: null, panelOpacity: 52, blur: 0 },
+    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0 },
     images: [],
   });
   assert.ok(existsSync(join(app.dataDir, "config.json")));
@@ -215,7 +215,7 @@ test("deleting the selected image clears the selection and the bytes", async () 
   const removed = await call(app.routes, "DELETE", `/dsh-wallpaper/library/${image.id}`);
   assert.equal(removed.status, 200);
   assert.deepEqual(removed.json().images, []);
-  assert.equal(removed.json().config.mode, "builtin");
+  assert.equal(removed.json().config.mode, "official");
   assert.equal(removed.json().config.customId, null);
   assert.equal(existsSync(join(app.dataDir, "images", `${image.id}.png`)), false);
   app.dispose();
@@ -300,7 +300,7 @@ test("drops library entries whose file is gone when the store reloads", async ()
   const restarted = setup({ home: app.root });
   const snapshot = await state(restarted);
   assert.deepEqual(snapshot.json().images, []);
-  assert.equal(snapshot.json().config.mode, "builtin");
+  assert.equal(snapshot.json().config.mode, "official");
   restarted.dispose();
   app.dispose();
 });

@@ -33,9 +33,17 @@ async function main() {
     return `data:image/webp;base64,${bytes.toString("base64")}`;
   };
 
+  // Two families: the deepseek.com-style hero (`official`) is the default art,
+  // the aurora pair stays as the alternative built-in.
   const wallpapers = {
-    light: await dataUri("aurora-light.webp"),
-    dark: await dataUri("aurora-dark.webp"),
+    aurora: {
+      light: await dataUri("aurora-light.webp"),
+      dark: await dataUri("aurora-dark.webp"),
+    },
+    official: {
+      light: await dataUri("official-light.webp"),
+      dark: await dataUri("official-dark.webp"),
+    },
   };
   const output = template.replace(MARKER, JSON.stringify(wallpapers));
 
