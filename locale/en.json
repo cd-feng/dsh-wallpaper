@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Wallpaper",
+    "description": "Replace the flat Harness background with a wallpaper: built-in aurora art that follows light/dark, or your own images. Images and the selection are stored by the plugin Host in the local DSH data directory, so they survive restarts and never leave this machine."
+  }
+}

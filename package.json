@@ -1,0 +1,69 @@
+{
+  "name": "dsh-wallpaper",
+  "version": "0.3.0",
+  "description": "Replace the Harness solid background with a wallpaper: built-in aurora art or your own images, stored host-side so they survive restarts.",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "wallpaper",
+    "background",
+    "theme",
+    "personalization"
+  ],
+  "author": "cd-feng",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cd-feng/dsh-wallpaper.git"
+  },
+  "homepage": "https://github.com/cd-feng/dsh-wallpaper#readme",
+  "bugs": {
+    "url": "https://github.com/cd-feng/dsh-wallpaper/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "wallpapers": "python3 scripts/make-wallpapers.py",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/build-client.mjs && node --check lib/client.js && node --check lib/index.js && node --test tests/*.test.mjs"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.1-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ]
+    }
+  }
+}

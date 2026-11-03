@@ -1,0 +1,599 @@
+/**
+ * Headless behaviour tests for the built browser half.
+ *
+ * The live page cannot be driven from here (no browser control, screen capture is
+ * denied), so this loads the real `lib/client.js` against a small DOM / React /
+ * fetch stand-in and asserts the observable contract:
+ *
+ *  - the body marker, the stylesheet and the theme-token layer the wallpaper needs;
+ *  - the settings-section registration (order 5, localized label);
+ *  - the page render (localized copy, upload input, sliders, cards);
+ *  - upload → Host POST → wallpaper swap, delete, official mode, debounced PATCH;
+ *  - the reduce-transparency pause and the Host-unavailable fallback;
+ *  - and that service methods are never passed to React detached (the regression
+ *    that once made the settings row crash on the real page).
+ *
+ * Dependency-free: `node --test tests/*.test.mjs`.
+ */
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const BUNDLE = path.join(ROOT, "lib/client.js");
+
+const IMAGE_ID = "00000000-0000-4000-8000-000000000001";
+const IMAGE_ID_2 = "00000000-0000-4000-8000-000000000002";
+
+let bundleCode = "";
+async function readBundle() {
+  if (bundleCode === "") bundleCode = await readFile(BUNDLE, "utf8");
+  return bundleCode;
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ------------------------------------------------------------------ harness
+
+function createDocument() {
+  const styleTags = [];
+  const head = {
+    children: styleTags,
+    appendChild(node) {
+      styleTags.push(node);
+      return node;
+    },
+  };
+  const attributes = new Map();
+  const body = {
+    setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: (name) => attributes.delete(name),
+    hasAttribute: (name) => attributes.has(name),
+  };
+  return {
+    document: {
+      head,
+      body,
+      createElement(tagName) {
+        const node = {
+          tagName,
+          dataset: {},
+          textContent: "",
+          remove() {
+            const index = styleTags.indexOf(node);
+            if (index >= 0) styleTags.splice(index, 1);
+          },
+        };
+        return node;
+      },
+    },
+    styleTags,
+    attributes,
+  };
+}
+
+function createMedia({ reducedTransparency = false } = {}) {
+  const handlers = new Set();
+  const media = {
+    matches: reducedTransparency,
+    addEventListener: (type, handler) => handlers.add(handler),
+    removeEventListener: (type, handler) => handlers.delete(handler),
+    fire(next) {
+      media.matches = next;
+      for (const handler of [...handlers]) handler();
+    },
+    handlerCount: () => handlers.size,
+  };
+  return media;
+}
+
+function createLocale() {
+  const dictionaries = new Map();
+  const listeners = new Set();
+  // Methods use `this` on purpose: a caller that detaches them (the old bug)
+  // explodes here instead of silently rendering an empty page.
+  return {
+    active: "zh",
+    snapshot: Object.freeze({ active: "zh", locales: [], revision: 0 }),
+    register(namespace, dicts) {
+      dictionaries.set(namespace, dicts);
+      return () => dictionaries.delete(namespace);
+    },
+    getSnapshot() {
+      return this.snapshot;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    bind(namespace) {
+      const self = this;
+      return (key, params) => self.translate(namespace, key, params);
+    },
+    translate(namespace, key, params) {
+      const dicts = dictionaries.get(namespace) ?? {};
+      const dict = dicts[this.active] ?? dicts.zh ?? {};
+      const template = dict[key] ?? key;
+      if (params === undefined) return template;
+      return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+    },
+  };
+}
+
+function clamp(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(number)));
+}
+
+/** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
+function createHost({ config = {}, images = [], fail = false } = {}) {
+  const state = {
+    config: { mode: "builtin", customId: null, panelOpacity: 52, blur: 0, ...config },
+    images: [...images],
+  };
+  const calls = [];
+  let counter = 0;
+  const knownIds = () => new Set(state.images.map((image) => image.id));
+
+  const normalize = (raw) => {
+    const source = raw !== null && typeof raw === "object" ? raw : {};
+    let mode = source.mode;
+    if (mode !== "official" && mode !== "builtin" && mode !== "custom") mode = "builtin";
+    const customId =
+      typeof source.customId === "string" && knownIds().has(source.customId) ? source.customId : null;
+    if (mode === "custom" && customId === null) mode = "builtin";
+    return {
+      mode,
+      customId,
+      panelOpacity: clamp(source.panelOpacity, 20, 100, 52),
+      blur: clamp(source.blur, 0, 24, 0),
+    };
+  };
+
+  const reply = (status, payload) => ({
+    ok: status < 400,
+    status,
+    text: async () => JSON.stringify(payload),
+  });
+
+  const fetch = async (url, init = {}) => {
+    const method = (init.method ?? "GET").toUpperCase();
+    const path = String(url).split("?")[0];
+    calls.push({ path, method, init });
+    if (fail) return reply(404, { error: "not found" });
+
+    if (path === "/dsh-wallpaper/state" && method === "GET") {
+      return reply(200, { config: state.config, images: state.images });
+    }
+    if (path === "/dsh-wallpaper/config" && method === "PATCH") {
+      state.config = normalize({ ...state.config, ...JSON.parse(String(init.body)) });
+      return reply(200, { config: state.config, images: state.images });
+    }
+    if (path === "/dsh-wallpaper/library" && method === "POST") {
+      counter += 1;
+      const id = counter === 1 ? IMAGE_ID : IMAGE_ID_2;
+      const entry = {
+        id,
+        name: decodeURIComponent(init.headers["x-filename"] ?? "wallpaper"),
+        mime: init.headers["content-type"] ?? "image/png",
+        size: typeof init.body?.size === "number" ? init.body.size : 0,
+        addedAt: Date.now(),
+        sha256: `hash-${counter}`,
+      };
+      state.images = [entry, ...state.images];
+      state.config = normalize({ ...state.config, mode: "custom", customId: id });
+      return reply(201, { config: state.config, images: state.images });
+    }
+    const removed = /^\/dsh-wallpaper\/library\/(.+)$/.exec(path);
+    if (removed !== null && method === "DELETE") {
+      state.images = state.images.filter((image) => image.id !== removed[1]);
+      state.config = normalize(state.config);
+      return reply(200, { config: state.config, images: state.images });
+    }
+    return reply(404, { error: "not found" });
+  };
+
+  return { state, calls, fetch, normalize };
+}
+
+function createReact() {
+  const slots = [];
+  const effects = [];
+  let cursor = 0;
+  const React = {
+    createElement(type, props, ...children) {
+      return { type, props: props ?? {}, children: children.flat() };
+    },
+    useSyncExternalStore(_subscribe, getSnapshot) {
+      return getSnapshot();
+    },
+    useState(initial) {
+      const index = cursor++;
+      if (slots[index] === undefined) {
+        slots[index] = { value: typeof initial === "function" ? initial() : initial };
+      }
+      const slot = slots[index];
+      return [
+        slot.value,
+        (next) => {
+          slot.value = typeof next === "function" ? next(slot.value) : next;
+          return slot.value;
+        },
+      ];
+    },
+    useRef(initial) {
+      const index = cursor++;
+      if (slots[index] === undefined) slots[index] = { value: { current: initial } };
+      return slots[index].value;
+    },
+    useEffect(run, deps) {
+      const index = cursor++;
+      const previous = effects[index];
+      const unchanged =
+        previous !== undefined &&
+        Array.isArray(deps) &&
+        Array.isArray(previous.deps) &&
+        deps.length === previous.deps.length &&
+        deps.every((value, i) => value === previous.deps[i]);
+      if (unchanged) return;
+      if (previous !== undefined && typeof previous.cleanup === "function") previous.cleanup();
+      effects[index] = { deps, cleanup: run() };
+    },
+    beginRender() {
+      cursor = 0;
+    },
+  };
+  return React;
+}
+
+function createContext({ locale }) {
+  const disposers = [];
+  const overrides = [];
+  const released = [];
+  const registrations = [];
+  const injections = [];
+  const context = {
+    effect(run) {
+      const disposer = run();
+      if (typeof disposer === "function") disposers.push(disposer);
+      return disposer;
+    },
+    locale,
+    theme: {
+      overrideTokens(source, tokens) {
+        overrides.push({ source, tokens });
+        return () => released.push(source);
+      },
+    },
+    slots: {
+      inject(key, callback) {
+        injections.push(key);
+        return callback();
+      },
+      register(options, component) {
+        registrations.push({ options, component });
+        return () => {};
+      },
+    },
+  };
+  return { ctx: context, disposers, overrides, released, registrations, injections };
+}
+
+async function boot({ reducedTransparency = false, ...hostOptions } = {}) {
+  const code = await readBundle();
+  const dom = createDocument();
+  const media = createMedia({ reducedTransparency });
+  const host = createHost(hostOptions);
+  const window = {
+    document: dom.document,
+    fetch: host.fetch,
+    matchMedia: (query) => {
+      assert.equal(query, "(prefers-reduced-transparency: reduce)");
+      return media;
+    },
+    setTimeout: (fn, ms) => {
+      const timer = setTimeout(fn, ms);
+      timer.unref?.();
+      return timer;
+    },
+    clearTimeout: (timer) => clearTimeout(timer),
+  };
+
+  const previous = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = window;
+  globalThis.document = dom.document;
+
+  let captured = null;
+  window.__ModuleLoader__ = {
+    load(entry) {
+      captured = entry;
+    },
+  };
+  new Function("window", "document", code)(window, dom.document);
+  assert.ok(captured, "bundle registered a module");
+
+  const React = createReact();
+  const plugin = captured.factory((request) => {
+    assert.equal(request, "react");
+    return React;
+  });
+  const locale = createLocale();
+  const context = createContext({ locale });
+  plugin.apply(context.ctx);
+  await delay(20);
+
+  return {
+    entry: captured,
+    plugin,
+    React,
+    dom,
+    media,
+    host,
+    ...context,
+    render() {
+      React.beginRender();
+      return context.registrations[0].component();
+    },
+    dispose() {
+      for (const disposer of [...context.disposers].reverse()) disposer();
+      globalThis.window = previous.window;
+      globalThis.document = previous.document;
+    },
+  };
+}
+
+// ------------------------------------------------------------- tree helpers
+
+function collectText(node, out = []) {
+  if (node === null || node === undefined) return out;
+  if (typeof node === "string" || typeof node === "number") {
+    out.push(String(node));
+    return out;
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) collectText(child, out);
+    return out;
+  }
+  if (typeof node === "object" && node.children !== undefined) collectText(node.children, out);
+  return out;
+}
+
+function walk(node, visit) {
+  if (node === null || node === undefined) return;
+  if (Array.isArray(node)) {
+    for (const child of node) walk(child, visit);
+    return;
+  }
+  if (typeof node !== "object") return;
+  visit(node);
+  if (node.children !== undefined) walk(node.children, visit);
+}
+
+function findAll(node, predicate) {
+  const found = [];
+  walk(node, (element) => {
+    if (predicate(element)) found.push(element);
+  });
+  return found;
+}
+
+function allText(node) {
+  return collectText(node).join("\n");
+}
+
+function cardNames(tree) {
+  return findAll(tree, (element) => element.type === "span" && element.props.className === "dwp-cardName").map((element) =>
+    collectText(element).join(""),
+  );
+}
+
+function sheetOf(app) {
+  const sheet = app.dom.styleTags.find((tag) => tag.dataset.pluginCss === "dsh-wallpaper/global.css");
+  assert.ok(sheet, "wallpaper stylesheet exists");
+  return sheet;
+}
+
+// ---------------------------------------------------------------- the tests
+
+test("registers under the package name", async () => {
+  const app = await boot();
+  assert.equal(app.entry.id, "dsh-wallpaper");
+  app.dispose();
+});
+
+test("defaults to the built-in wallpaper and cleans up on dispose", async () => {
+  const app = await boot();
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  const sheet = sheetOf(app);
+  assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]\{background-color:transparent/);
+  assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]::before\{content:""/);
+  assert.match(sheet.textContent, /data:image\/webp;base64,/);
+  assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]\[data-ds-dark-theme\]::before\{content:""/);
+  assert.match(sheet.textContent, /_sidebarCol/);
+
+  assert.ok(app.overrides.length >= 1);
+  const tokens = app.overrides.at(-1).tokens;
+  assert.deepEqual(Object.keys(tokens), ["--dsw-alias-bg-base"]);
+  assert.equal(tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.52)");
+  assert.equal(tokens["--dsw-alias-bg-base"].dark, "rgba(21, 21, 23, 0.58)");
+
+  app.dispose();
+  assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
+  assert.equal(app.dom.styleTags.length, 0);
+  assert.equal(app.released.length, app.overrides.length);
+  assert.ok(app.released.every((source) => source === "dsh-wallpaper"));
+});
+
+test("a Host-selected custom image becomes the wallpaper", async () => {
+  const app = await boot({
+    config: { mode: "custom", customId: IMAGE_ID, panelOpacity: 64 },
+    images: [{ id: IMAGE_ID, name: "my-photo.jpg", mime: "image/jpeg", size: 1200, addedAt: 1 }],
+  });
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "custom");
+  const sheet = sheetOf(app);
+  assert.match(sheet.textContent, new RegExp(`url\\("/dsh-wallpaper/assets/${IMAGE_ID}"\\)`));
+  assert.doesNotMatch(sheet.textContent, /data:image\/webp;base64,/);
+  assert.equal(app.overrides.at(-1).tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.64)");
+
+  const tree = app.render();
+  assert.ok(cardNames(tree).includes("my-photo.jpg"));
+  assert.ok(allText(tree).includes("使用中"));
+  app.dispose();
+});
+
+test("an unreachable Host half keeps the built-in look and explains the restart", async () => {
+  const app = await boot({ fail: true });
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  const tree = app.render();
+  assert.ok(allText(tree).includes("壁纸服务还没启动"), "page explains the missing Host half");
+  const upload = findAll(tree, (element) => element.type === "button" && element.props.className === "dwp-btn")[0];
+  assert.equal(upload.props.disabled, true);
+  app.dispose();
+});
+
+test("registers a settings section at order 5 with a localized label", async () => {
+  const app = await boot();
+  assert.deepEqual(app.injections, ["settings.section"]);
+  assert.equal(app.registrations.length, 1);
+  assert.equal(app.registrations[0].options.name, "settings.section");
+  assert.equal(app.registrations[0].options.id, "wallpaper");
+  assert.equal(app.registrations[0].options.order, 5);
+  assert.equal(app.registrations[0].options.label(), "壁纸");
+  app.dispose();
+});
+
+test("the page renders localized copy, the upload input and both sliders", async () => {
+  const app = await boot();
+  const tree = app.render();
+  const text = allText(tree);
+  for (const expected of ["壁纸", "背景", "官方纯色", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "背景模糊", "恢复默认"]) {
+    assert.ok(text.includes(expected), `page copy includes ${expected}`);
+  }
+  const fileInputs = findAll(tree, (element) => element.type === "input" && element.props.type === "file");
+  assert.equal(fileInputs.length, 1);
+  assert.match(fileInputs[0].props.accept, /image\/png/);
+  assert.match(fileInputs[0].props.accept, /image\/jpeg/);
+  const ranges = findAll(tree, (element) => element.type === "input" && element.props.type === "range");
+  assert.deepEqual(ranges.map((range) => range.props.min), [20, 0]);
+  assert.deepEqual(ranges.map((range) => range.props.max), [100, 24]);
+  assert.deepEqual(cardNames(tree), ["官方纯色", "极光"]);
+  app.dispose();
+});
+
+test("uploading posts to the Host, selects the image and shows the card", async () => {
+  const app = await boot();
+  let tree = app.render();
+  const fileInput = findAll(tree, (element) => element.type === "input" && element.props.type === "file")[0];
+  const file = { name: "sunset.png", type: "image/png", size: 4096 };
+
+  fileInput.props.onChange({ currentTarget: { files: [file], value: "" } });
+  await delay(50);
+
+  const post = app.host.calls.find((call) => call.path === "/dsh-wallpaper/library" && call.method === "POST");
+  assert.ok(post, "upload reached the Host");
+  assert.equal(post.init.headers["content-type"], "image/png");
+  assert.equal(decodeURIComponent(post.init.headers["x-filename"]), "sunset.png");
+  assert.equal(app.host.state.config.mode, "custom");
+  assert.equal(app.host.state.config.customId, IMAGE_ID);
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "custom");
+  assert.match(sheetOf(app).textContent, new RegExp(`url\\("/dsh-wallpaper/assets/${IMAGE_ID}"\\)`));
+
+  tree = app.render();
+  assert.ok(cardNames(tree).includes("sunset.png"));
+  assert.equal(findAll(tree, (element) => element.type === "div" && element.props.className === "dwp-card").length, 3);
+  app.dispose();
+});
+
+test("rejects unsupported files locally without calling the Host", async () => {
+  const app = await boot();
+  const tree = app.render();
+  const fileInput = findAll(tree, (element) => element.type === "input" && element.props.type === "file")[0];
+  fileInput.props.onChange({
+    currentTarget: { files: [{ name: "notes.txt", type: "text/plain", size: 10 }], value: "" },
+  });
+  await delay(30);
+  assert.equal(app.host.calls.filter((call) => call.method === "POST").length, 0);
+  assert.ok(allText(app.render()).includes("不是支持的图片格式"));
+  app.dispose();
+});
+
+test("deleting the selected image falls back to the built-in wallpaper", async () => {
+  const app = await boot({
+    config: { mode: "custom", customId: IMAGE_ID },
+    images: [{ id: IMAGE_ID, name: "gone.png", mime: "image/png", size: 10, addedAt: 1 }],
+  });
+  let tree = app.render();
+  let deleteButton = findAll(tree, (element) => element.type === "button" && element.props.className === "dwp-delete")[0];
+  deleteButton.props.onClick();
+  tree = app.render();
+  deleteButton = findAll(tree, (element) => element.type === "button" && element.props.className === "dwp-delete")[0];
+  assert.equal(collectText(deleteButton).join(""), "确认删除");
+  deleteButton.props.onClick();
+  await delay(50);
+
+  assert.ok(app.host.calls.find((call) => call.method === "DELETE"), "delete reached the Host");
+  assert.equal(app.host.state.images.length, 0);
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  assert.deepEqual(cardNames(app.render()), ["官方纯色", "极光"]);
+  app.dispose();
+});
+
+test("official mode wins the immediate paint and persists through a debounced PATCH", async () => {
+  const app = await boot();
+  const tree = app.render();
+  const official = findAll(
+    tree,
+    (element) => element.type === "button" && element.props.className === "dwp-cardSelect" && element.props["aria-pressed"] === false,
+  );
+  official[0].props.onClick();
+
+  assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
+  assert.equal(sheetOf(app).textContent, "");
+  assert.equal(app.released.at(-1), "dsh-wallpaper");
+
+  await delay(300);
+  const patch = app.host.calls.find((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
+  assert.ok(patch, "preference was written back");
+  assert.equal(JSON.parse(String(patch.init.body)).mode, "official");
+  assert.equal(app.host.state.config.mode, "official");
+  app.dispose();
+});
+
+test("a slider repaints at once and writes one debounced PATCH", async () => {
+  const app = await boot();
+  const ranges = findAll(app.render(), (element) => element.type === "input" && element.props.type === "range");
+  ranges[0].props.onChange({ currentTarget: { value: "80" } });
+  ranges[0].props.onChange({ currentTarget: { value: "85" } });
+  assert.equal(app.overrides.at(-1).tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.85)");
+
+  await delay(300);
+  const patches = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
+  assert.equal(patches.length, 1, "two quick changes collapse into one write");
+  assert.equal(JSON.parse(String(patches[0].init.body)).panelOpacity, 85);
+  assert.equal(app.host.state.config.panelOpacity, 85);
+  app.dispose();
+});
+
+test("reduce-transparency pauses the wallpaper and resumes when disabled", async () => {
+  const app = await boot({ reducedTransparency: true });
+  assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
+  assert.equal(app.overrides.length, 0);
+
+  app.media.fire(false);
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "builtin");
+  assert.equal(app.overrides.length, 1);
+  app.dispose();
+  assert.equal(app.media.handlerCount(), 0);
+});
+
+test("the locale service is never called detached", async () => {
+  const app = await boot();
+  // createLocale() methods read `this`; a detached call would have thrown while
+  // registering the label thunk or rendering the page.
+  assert.doesNotThrow(() => app.render());
+  assert.ok(allText(app.render()).includes("壁纸"));
+  app.dispose();
+});
