@@ -492,3 +492,28 @@ test("prefers the profile hint over cwd and only cleans up its own temp root", (
   assert.ok(existsSync(callerRoot));
   rmSync(callerRoot, { recursive: true, force: true });
 });
+
+test("a failed PATCH cannot report success on a same-value retry", async () => {
+  const app = setup();
+  const configPath = join(app.dataDir, "config.json");
+  rmSync(configPath, { force: true });
+  mkdirSync(configPath);
+
+  const failed = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {
+    body: Buffer.from('{"panelOpacity":70}'),
+  });
+  assert.equal(failed.status, 500);
+  // Memory kept the old value, so the next read is honest about what is on disk.
+  assert.equal((await state(app)).json().config.panelOpacity, 52);
+
+  rmSync(configPath, { recursive: true, force: true });
+  writeFileSync(configPath, `${JSON.stringify({ mode: "official", customId: null, panelOpacity: 52, blur: 0 })}\n`);
+  const retried = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {
+    body: Buffer.from('{"panelOpacity":70}'),
+  });
+  assert.equal(retried.status, 200);
+  assert.equal(JSON.parse(readFileSync(configPath, "utf8")).panelOpacity, 70);
+  // Mode survives the retry: it was never reset to the default by the failure.
+  assert.equal(retried.json().config.mode, "official");
+  app.dispose();
+});

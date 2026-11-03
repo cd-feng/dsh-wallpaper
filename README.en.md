@@ -73,7 +73,7 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + syntax check + 37 behaviour tests
+npm run check        # rebuild bundle + syntax check + 38 behaviour tests
 npm test             # tests only
 npm run build        # rebuild lib/client.js (inlines wallpaper data URIs)
 npm run wallpapers   # regenerate the built-in art (Pillow + numpy, fixed seed)
@@ -104,7 +104,8 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - Animated uploads (GIF / animated WebP / AVIF) repaint the full-viewport layer every frame — prefer still images.
 - Custom-image thumbnails reuse the original file; there is no server-side downscale.
 - The sidebar override also sets the documented `--dsw-specific-sidebar-fill` token, so surfaces that read it (the Windows title bar) stay translucent.
-- The 37 tests cover behaviour, not aesthetics.
+- Two Host processes sharing one data directory do not merge writes (normally there is exactly one Desktop process); edits made by hand are picked up after a Host restart.
+- The 38 tests cover behaviour, not aesthetics.
 
 ## Data integrity
 

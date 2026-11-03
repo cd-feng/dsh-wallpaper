@@ -90,7 +90,7 @@ target: dsh-wallpaper
 ## 开发
 
 ```sh
-npm run check        # 重新生成 bundle + 语法检查 + 37 条行为测试
+npm run check        # 重新生成 bundle + 语法检查 + 38 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI）
 npm run wallpapers   # 重画内置壁纸（需 python3 + `pip install pillow numpy`；固定种子可复现）
@@ -156,7 +156,8 @@ dsh-wallpaper/
 - 「官方」是照着 deepseek.com 当前首页配色烘的静态图，官网改版不会自动跟；要跟就重跑 `npm run wallpapers` 改预设。
 - 上传动图（GIF/AVIF/动画 WebP）会让全屏背景逐帧解码，建议用静态图。
 - 自定义图的缩略图直接复用原图，没有服务端缩放。
-- 行为测试覆盖 37 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
+- 两个 Host 进程同时指向同一数据目录时不会合并写入（正常只有一个 Desktop 进程）；手改文件后需重启 Host 半才会重新读盘。
+- 行为测试覆盖 38 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
 
 ## 数据完整性
 

@@ -13,7 +13,7 @@ Host 半审计（数据完整性 / 权限 / 缓存）的修复，重点是不再
 - **fence 修正**：对端接受 `127/8`（绑 `127.0.0.2` 不再全站 403）；`Origin` 同时比较 scheme + host + port。
 - **缓存/304**：304 由元数据 ETag 判定（支持 `If-None-Match` 列表 / weak / `*`），不再先读文件；新增 `Last-Modified` 与 `HEAD`；并发 miss 不重复计内存；DELETE 竞态不再缓存孤儿。
 - **校验**：sha256 格式、扩展名与 mime 绑定、上传文件名剥 bidi/零宽并按 code point 截断；`clampInt(null/true)` 不再落到极值。
-- **测试**：新增故障路径、损坏隔离、只读 GET、服务端 40 MP、ETag/304/HEAD、0700/0600、软链、profile 判定与临时目录清理，共 37 条；测试脚本改成显式文件列表（Windows cmd 不展开 glob）。
+- **测试**：新增故障路径、损坏隔离、只读 GET、服务端 40 MP、ETag/304/HEAD、0700/0600、软链、profile 判定与临时目录清理，共 38 条；测试脚本改成显式文件列表（Windows cmd 不展开 glob）。
 - 文档：补「数据完整性」章节，更新测试数与 CI 版本（Node 22/24）。
 
 ## 0.5.1
