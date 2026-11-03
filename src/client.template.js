@@ -361,8 +361,10 @@ window.__ModuleLoader__.load({
     }
 
     const GRID_CELL = 56;
-    const GRID_LINE_LIGHT = "rgba(30, 41, 59, 0.055)";
-    const GRID_LINE_DARK = "rgba(255, 255, 255, 0.07)";
+    // The site's grid is barely there; two thirds of a step above it and the
+    // Harness panels start reading as graph paper.
+    const GRID_LINE_LIGHT = "rgba(30, 41, 59, 0.018)";
+    const GRID_LINE_DARK = "rgba(255, 255, 255, 0.028)";
 
     /**
      * The官网背景的细网格：烘焙进位图会在缩放时起摩尔纹，所以用 CSS 重复渐变叠在

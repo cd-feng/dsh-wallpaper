@@ -219,8 +219,11 @@ def official_field(
     ):
         noise = fbm(width, height, seed=pass_seed, octaves=4, cells=pass_cells)
         noise = warp_field(noise, seed=pass_seed + 11, strength=warp, cells=max(pass_cells * 0.6, 2.0))
-        wisp = np.clip((noise - 0.42) * 2.6, 0.0, 1.0)
-        wisp *= 0.45 + 0.75 * np.clip(1.25 - ys, 0.0, 1.0)
+        wisp = np.clip((noise - 0.42) * 2.4, 0.0, 1.0)
+        # The site's clouds pool through the middle of the page: the very top
+        # stays clean, the bottom fades out to near-white.
+        wisp *= np.exp(-(((ys - 0.48) / 0.40) ** 2))
+        wisp *= np.clip((1.00 - ys) / 0.28, 0.0, 1.0)
         mix(wisp, cloud_color, pass_strength)
 
     # Centre halo: the page keeps its content area bright.
@@ -367,19 +370,22 @@ OFFICIAL_LIGHT_PRESET = {
     "field": {
         "seed": 20261106,
         # Top band from the site (#9cc1e7), page base #f9f8f8, white centre.
-        "top": (0.965, 0.974, 0.986),
-        "bottom": (0.945, 0.956, 0.975),
-        "hero_color": (0.600, 0.730, 0.890),
-        "hero_strength": 0.58,
-        "hero_fade": 0.55,
-        "wing_color": (0.650, 0.760, 0.905),
-        "wing_strength": 0.42,
+        # Tuned against the live site (10px-blurred, UI masked): the page is a
+        # near-flat #e2eaf5..#e4ecf6 wash, slightly bluer up top, near-neutral
+        # white at the bottom, with only gentle cloud modulation.
+        "top": (0.898, 0.925, 0.965),
+        "bottom": (0.950, 0.957, 0.974),
+        "hero_color": (0.800, 0.860, 0.940),
+        "hero_strength": 0.0,
+        "hero_fade": 0.40,
+        "wing_color": (0.820, 0.880, 0.950),
+        "wing_strength": 0.12,
         "glow_color": (1.0, 1.0, 1.0),
-        "glow_strength": 0.42,
-        "cloud_color": (0.600, 0.720, 0.900),
-        "cloud_strength": 0.30,
-        "vignette_color": (0.720, 0.790, 0.900),
-        "vignette_strength": 0.24,
+        "glow_strength": 0.28,
+        "cloud_color": (0.660, 0.750, 0.900),
+        "cloud_strength": 0.55,
+        "vignette_color": (0.850, 0.890, 0.940),
+        "vignette_strength": 0.12,
         "cells": 3.0,
         "warp": 50.0,
     },
