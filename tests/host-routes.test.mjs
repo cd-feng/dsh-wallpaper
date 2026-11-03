@@ -8,10 +8,10 @@
  * the recorded handlers with Node's IncomingMessage/ServerResponse shape.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { apply, dataDirFor, dshHome, hostProfileFor, isTrustedRequest } from "../lib/index.js";
 
@@ -22,8 +22,15 @@ const PNG = Buffer.concat([
 
 // ------------------------------------------------------------------ harness
 
+const ownedRoots = new Set();
+after(() => {
+  for (const root of ownedRoots) rmSync(root, { recursive: true, force: true });
+  ownedRoots.clear();
+});
+
 function setup({ home = null } = {}) {
   const root = home ?? mkdtempSync(join(tmpdir(), "dsh-wallpaper-"));
+  if (home === null) ownedRoots.add(root);
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = root;
   const routes = [];
@@ -63,7 +70,8 @@ function setup({ home = null } = {}) {
       }
       if (previous === undefined) delete process.env.DSH_HOME;
       else process.env.DSH_HOME = previous;
-      rmSync(root, { recursive: true, force: true });
+      ownedRoots.delete(root);
+      if (home === null) rmSync(root, { recursive: true, force: true });
     },
   };
 }
@@ -122,6 +130,23 @@ async function call(routes, method, url, options = {}) {
 }
 
 const state = (app) => call(app.routes, "GET", "/dsh-wallpaper/state");
+
+/** A PNG header with a real IHDR chunk (no pixel data; the Host only reads headers). */
+function pngWithSize(width, height) {
+  const header = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+  header.writeUInt32BE(13, 8);
+  header.write("IHDR", 12, "latin1");
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  header[24] = 8; // bit depth
+  header[25] = 6; // RGBA
+  return header;
+}
+
+function corruptFiles(root) {
+  return readdirSync(root).filter((file) => file.includes(".corrupt-"));
+}
 
 async function upload(app, { body = PNG, mime = "image/png", name = "wallpaper.png" } = {}) {
   return call(app.routes, "POST", "/dsh-wallpaper/library", {
@@ -260,6 +285,13 @@ test("isTrustedRequest accepts the page's own requests only", () => {
   assert.equal(isTrustedRequest(request({ host: "evil.example.com" })), false);
   assert.equal(isTrustedRequest(request({ host: "127.0.0.1:9", "sec-fetch-site": "cross-site" })), false);
   assert.equal(isTrustedRequest(request({})), false);
+  // Any 127/8 peer is loopback, not just 127.0.0.1 (the server may bind 127.0.0.2).
+  assert.equal(isTrustedRequest(request({ host: "127.0.0.2:9" }, "127.0.0.2")), true);
+  assert.equal(isTrustedRequest(request({ host: "127.0.0.2:9" }, "127.9.9.9")), true);
+  assert.equal(isTrustedRequest(request({ host: "127.0.0.2:9" }, "10.0.0.1")), false);
+  // Origin scheme and port must match the page, not just the hostname.
+  assert.equal(isTrustedRequest(request({ host: "127.0.0.1:9", origin: "https://127.0.0.1:9" })), false);
+  assert.equal(isTrustedRequest(request({ host: "127.0.0.1:9", origin: "http://127.0.0.1:9", "sec-fetch-site": "same-origin" })), true);
 });
 
 test("rejects unsupported, empty and oversized uploads", async () => {
@@ -277,8 +309,10 @@ test("rejects unsupported, empty and oversized uploads", async () => {
   assert.equal(declaredTooLarge.status, 413);
 
   // A GIF header with a PNG declaration is sniffed by magic bytes, not trusted.
+  // The header carries a real 1x1 logical screen descriptor.
+  const gifHeader = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00]);
   const fake = await upload(app, {
-    body: Buffer.concat([Buffer.from("GIF89a"), Buffer.from("payload")]),
+    body: Buffer.concat([gifHeader, Buffer.from("payload")]),
     mime: "image/png",
     name: "actually.gif",
   });
@@ -322,4 +356,139 @@ test("resolves DSH_HOME and the per-profile data directory", () => {
   assert.equal(hostProfileFor("/tmp/dsh-home-test", "/tmp/dsh-home-test/profiles/web"), "web");
   if (previous === undefined) delete process.env.DSH_HOME;
   else process.env.DSH_HOME = previous;
+});
+
+// ------------------------------------------------------- failure-path coverage
+
+test("a failed upload leaves no image row and no file behind", async () => {
+  const app = setup();
+  // A directory where library.json belongs makes the metadata write fail.
+  rmSync(join(app.dataDir, "library.json"), { force: true });
+  mkdirSync(join(app.dataDir, "library.json"));
+
+  const response = await upload(app);
+  assert.equal(response.status, 500);
+  const snapshot = await state(app);
+  assert.deepEqual(snapshot.json().images, []);
+  assert.equal(snapshot.json().config.mode, "official");
+  assert.deepEqual(readdirSync(join(app.dataDir, "images")), []);
+
+  // Once the obstruction is gone the same upload works again: no stale memory.
+  rmSync(join(app.dataDir, "library.json"), { recursive: true, force: true });
+  const retried = await upload(app);
+  assert.equal(retried.status, 201);
+  assert.equal(retried.json().images.length, 1);
+  app.dispose();
+});
+
+test("corrupt store files are quarantined instead of silently reset", async () => {
+  const app = setup();
+  const image = (await upload(app)).json().images[0];
+
+  writeFileSync(
+    join(app.dataDir, "config.json"),
+    `${JSON.stringify({ mode: "custom", customId: image.id, panelOpacity: 40, blur: 5 })}\n`,
+  );
+  writeFileSync(join(app.dataDir, "library.json"), "{ this is not json");
+
+  const restarted = setup({ home: app.root });
+  const snapshot = await state(restarted);
+  assert.equal(snapshot.status, 200);
+  // The library failed to load, so the selection is kept, not "repaired" away.
+  assert.equal(snapshot.json().config.mode, "custom");
+  assert.equal(snapshot.json().config.customId, image.id);
+  assert.equal(snapshot.json().config.panelOpacity, 40);
+  assert.deepEqual(snapshot.json().images, []);
+  assert.match(snapshot.json().warning, /library\.json was unreadable/);
+  assert.equal(corruptFiles(app.dataDir).filter((file) => file.startsWith("library.json")).length, 1);
+
+  // Writing a preference would overwrite the file the user may still repair.
+  const patch = await call(restarted.routes, "PATCH", "/dsh-wallpaper/config", { body: Buffer.from("{}") });
+  assert.equal(patch.status, 503);
+  restarted.dispose();
+  app.dispose();
+});
+
+test("GET /state does not write to disk", async () => {
+  const app = setup();
+  const configBefore = statSync(join(app.dataDir, "config.json")).mtimeMs;
+  const libraryBefore = statSync(join(app.dataDir, "library.json")).mtimeMs;
+  await state(app);
+  await state(app);
+  assert.equal(statSync(join(app.dataDir, "config.json")).mtimeMs, configBefore);
+  assert.equal(statSync(join(app.dataDir, "library.json")).mtimeMs, libraryBefore);
+  app.dispose();
+});
+
+test("rejects absurd pixel dimensions server-side, not just in the browser", async () => {
+  const app = setup();
+  const huge = await upload(app, { body: pngWithSize(20000, 20000) });
+  assert.equal(huge.status, 413);
+  assert.equal(huge.json().code, "IMAGE_TOO_LARGE");
+  assert.deepEqual((await state(app)).json().images, []);
+
+  const ok = await upload(app, { body: pngWithSize(4000, 3000) });
+  assert.equal(ok.status, 201);
+  app.dispose();
+});
+
+test("serves HEAD, ETag lists and Last-Modified without reading the file", async () => {
+  const app = setup();
+  const image = (await upload(app)).json().images[0];
+  const full = await call(app.routes, "GET", `/dsh-wallpaper/assets/${image.id}`);
+  assert.equal(full.status, 200);
+  assert.ok(full.body().length > 0);
+  const etag = full.headers.etag;
+  assert.match(etag, /^"[0-9a-f]{64}"$/);
+  assert.ok(!Number.isNaN(Date.parse(full.headers["last-modified"])));
+
+  for (const candidate of [etag, `W/${etag}`, `"nope", ${etag}`, "*"]) {
+    const cached = await call(app.routes, "GET", `/dsh-wallpaper/assets/${image.id}`, {
+      headers: { "if-none-match": candidate },
+    });
+    assert.equal(cached.status, 304, candidate);
+    assert.equal(cached.body().length, 0);
+  }
+
+  const head = await call(app.routes, "HEAD", `/dsh-wallpaper/assets/${image.id}`);
+  assert.equal(head.status, 200);
+  assert.equal(head.body().length, 0);
+  assert.ok(Number(head.headers["content-length"]) > 0);
+
+  const notModified = await call(app.routes, "GET", `/dsh-wallpaper/assets/${image.id}`, {
+    headers: { "if-none-match": '"deadbeef"' },
+  });
+  assert.equal(notModified.status, 200);
+  app.dispose();
+});
+
+test("stores files with owner-only permissions and refuses symlinked assets", async () => {
+  const app = setup();
+  const image = (await upload(app)).json().images[0];
+  assert.equal(statSync(app.dataDir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(app.dataDir, "images")).mode & 0o777, 0o700);
+  assert.equal(statSync(join(app.dataDir, "config.json")).mode & 0o777, 0o600);
+  assert.equal(statSync(join(app.dataDir, "images", `${image.id}.png`)).mode & 0o777, 0o600);
+
+  const imagePath = join(app.dataDir, "images", `${image.id}.png`);
+  rmSync(imagePath, { force: true });
+  symlinkSync(join(app.dataDir, "config.json"), imagePath);
+  const response = await call(app.routes, "GET", `/dsh-wallpaper/assets/${image.id}`);
+  assert.equal(response.status, 404);
+  app.dispose();
+});
+
+test("prefers the profile hint over cwd and only cleans up its own temp root", () => {
+  assert.equal(
+    hostProfileFor("/tmp/dsh-home-test", "/tmp/whatever", ["@deepseek-ai/dsh-desktop"]),
+    "desktop",
+  );
+  assert.equal(hostProfileFor("/tmp/dsh-home-test", "/tmp/dsh-home-test/profiles/desktop", []), "desktop");
+  assert.equal(hostProfileFor("/tmp/dsh-home-test", "/tmp/elsewhere", []), "web");
+
+  const callerRoot = mkdtempSync(join(tmpdir(), "dsh-wallpaper-caller-"));
+  const app = setup({ home: callerRoot });
+  app.dispose();
+  assert.ok(existsSync(callerRoot));
+  rmSync(callerRoot, { recursive: true, force: true });
 });

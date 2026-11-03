@@ -73,13 +73,13 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + syntax check + 30 behaviour tests
+npm run check        # rebuild bundle + syntax check + 37 behaviour tests
 npm test             # tests only
 npm run build        # rebuild lib/client.js (inlines wallpaper data URIs)
 npm run wallpapers   # regenerate the built-in art (Pillow + numpy, fixed seed)
 ```
 
-CI runs the syntax check and tests on Node 20/22 and verifies that a rebuild leaves `lib/client.js` unchanged.
+CI runs the syntax check and tests on Node 22/24 and verifies that a rebuild leaves `lib/client.js` unchanged.
 
 ## Performance
 
@@ -90,7 +90,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - **Coalesced repaints** — every state change goes through `requestAnimationFrame`, so a 100+ Hz trackpad drag still paints at most once per frame.
 - **No extra layers by default** — at blur 0 `filter`/`transform` are `none`, so the browser allocates no filter surface and no extra composited layer; a non-zero blur scales by `3×blur / viewport` so the feathered edge stays off-screen.
 - **Thumbnails** — the 168 px cards use 336×210 bakes (≈700 B each for the built-ins) instead of decoding a 13.7 MB original.
-- **Disk / network** — `PATCH` is debounced by 220 ms (0 writes while dragging, 1 on release); assets are read asynchronously with a 32 MB LRU and answer `If-None-Match` with 304, so serving never blocks the Host event loop; an unchanged PATCH is not written.
+- **Disk / network** — `PATCH` is debounced by 220 ms (0 writes while dragging, 1 on release); assets are read asynchronously with a 32 MB LRU, and a 304 is decided from the metadata ETag before any file read, so serving never blocks the Host event loop; an unchanged PATCH is not written.
 - **Memory** — each 2400×1500 built-in image decodes to ≈13.7 MB and only the active light/dark one is decoded; uploads above 40 megapixels are rejected (they would decode to hundreds of MB).
 - **Trade-off** — a large blur is the one expensive setting. Custom-image thumbnails reuse the original file, so a very large upload costs one decode when Settings opens.
 
@@ -104,7 +104,16 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - Animated uploads (GIF / animated WebP / AVIF) repaint the full-viewport layer every frame — prefer still images.
 - Custom-image thumbnails reuse the original file; there is no server-side downscale.
 - The sidebar override also sets the documented `--dsw-specific-sidebar-fill` token, so surfaces that read it (the Windows title bar) stay translucent.
-- The 30 tests cover behaviour, not aesthetics.
+- The 37 tests cover behaviour, not aesthetics.
+
+## Data integrity
+
+- Writes persist first and update memory afterwards: a failed `PATCH`, upload or delete rolls the metadata back, so a failed request never leaves a changed state and a restart never loses an image.
+- Atomic writes use `fsync` + a temp file + `rename`, and a failed write removes its temp file; a missing file and an unreadable one are handled differently.
+- A corrupt `library.json` / `config.json` is renamed to `.corrupt-<timestamp>` instead of being silently reset. Settings shows the warning returned by the Host, and a library that failed to load blocks overwriting the user's selection.
+- Data directories are `0700` and files are `0600`; asset routes only serve regular files and return 404 for symlinks.
+- The Host also parses image headers and rejects uploads above 40 megapixels, so a direct POST cannot bypass the browser-side check.
+- `GET /state` is read-only: default files are created when the plugin mounts, not by a read request.
 
 ## License
 

@@ -87,6 +87,7 @@ window.__ModuleLoader__.load({
       hintMissing: "选中的图片已不存在，当前显示内置壁纸。",
       hintLocal: "图片保存在插件数据目录（<DSH_HOME>/dsh-wallpaper[-desktop]/images/），清掉即可删除。",
       saveFailed: "设置没有写进磁盘：{error}",
+      dataWarning: "本地数据文件有问题：{warning}",
       saveRetry: "重新保存",
       bytes: "B",
       kilobytes: "KB",
@@ -126,6 +127,7 @@ window.__ModuleLoader__.load({
       hintMissing: "The selected image is gone; showing the built-in wallpaper.",
       hintLocal: "Images live in the plugin data directory (<DSH_HOME>/dsh-wallpaper[-desktop]/images/); remove it to delete them.",
       saveFailed: "Settings were not written to disk: {error}",
+      dataWarning: "Local data file problem: {warning}",
       saveRetry: "Save again",
       bytes: "B",
       kilobytes: "KB",
@@ -208,6 +210,8 @@ window.__ModuleLoader__.load({
       let queued = null;
       let disposed = false;
       let persistError = "";
+      /** Host-reported data-file problem (`/state.warning`); empty when healthy. */
+      let hostWarning = "";
       /** Bumped by every local change, so a slow PATCH cannot revert a fresh edit. */
       let revision = 0;
 
@@ -289,6 +293,14 @@ window.__ModuleLoader__.load({
         },
         /** 保存失败的详情；空串表示已经落盘。 */
         persistError: () => persistError,
+        /** Host 报告的数据文件问题；空串表示健康。 */
+        warning: () => hostWarning,
+        setWarning(message) {
+          const next = typeof message === "string" ? message : "";
+          if (next === hostWarning) return;
+          hostWarning = next;
+          emit();
+        },
         /** 立即重试一次挂起的写入（页面「重新保存」）。 */
         flush() {
           if (disposed) return;
@@ -331,6 +343,7 @@ window.__ModuleLoader__.load({
         if (Array.isArray(payload.images)) {
           patch({ status: "ready", images: payload.images.map(normalizeImage).filter((image) => ASSET_ID.test(image.id)), error: "" });
         }
+        store.setWarning(payload.warning);
         if (payload.config !== undefined) store.applyHost(payload.config);
       };
 
@@ -560,6 +573,7 @@ window.__ModuleLoader__.load({
         const [busy, setBusy] = React.useState(false);
         const [error, setError] = React.useState("");
         const [saveError, setSaveError] = React.useState(store.persistError());
+        const [storeWarning, setStoreWarning] = React.useState(store.warning());
         const reducedHint = React.useSyncExternalStore(
           subscribeReducedTransparency,
           readReducedTransparency,
@@ -577,7 +591,14 @@ window.__ModuleLoader__.load({
           return () => window.clearTimeout(timer);
         }, [pendingDelete]);
 
-        React.useEffect(() => store.subscribe(() => setSaveError(store.persistError())), []);
+        React.useEffect(
+          () =>
+            store.subscribe(() => {
+              setSaveError(store.persistError());
+              setStoreWarning(store.warning());
+            }),
+          [],
+        );
 
         const pickFiles = () => {
           if (inputRef.current !== null) inputRef.current.click();
@@ -765,6 +786,9 @@ window.__ModuleLoader__.load({
                   ),
                 ),
           ),
+          storeWarning === ""
+            ? null
+            : h("div", { className: "dwp-error", role: "status" }, t("dataWarning").replace("{warning}", storeWarning)),
           h(
             "div",
             { className: "dwp-section" },
