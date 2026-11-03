@@ -1,7 +1,7 @@
 {
   "name": "dsh-wallpaper",
-  "version": "0.5.0",
-  "description": "Replace the Harness solid background with a wallpaper: built-in aurora art or your own images, stored host-side so they survive restarts.",
+  "version": "0.5.1",
+  "description": "Replace the Harness solid background with a wallpaper: the deepseek.com-style Official bake (default), built-in aurora art, or your own images stored host-side so they survive restarts.",
   "type": "module",
   "main": "lib/index.js",
   "icon": "./icon.svg",
@@ -19,7 +19,8 @@
     "icon.svg",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "dsh",
@@ -42,7 +43,8 @@
     "url": "https://github.com/cd-feng/dsh-wallpaper/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22",
+    "dsh": ">=0.2.1-rc.1"
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",

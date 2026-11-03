@@ -34,15 +34,18 @@ async function main() {
   };
 
   // Two families: the deepseek.com-style hero (`official`) is the default art,
-  // the aurora pair stays as the alternative built-in.
+  // the aurora pair stays as the alternative built-in. `thumb` is the 336x210
+  // bake the settings cards use (the cards are 168 CSS px wide).
   const wallpapers = {
     aurora: {
       light: await dataUri("aurora-light.webp"),
       dark: await dataUri("aurora-dark.webp"),
+      thumb: await dataUri("aurora-dark.thumb.webp"),
     },
     official: {
       light: await dataUri("official-light.webp"),
       dark: await dataUri("official-dark.webp"),
+      thumb: await dataUri("official-light.thumb.webp"),
     },
   };
   const output = template.replace(MARKER, JSON.stringify(wallpapers));

@@ -9,7 +9,7 @@
 ## 特性
 
 - **装完即用**：`lib/client.js` 已生成并随包提交；内置壁纸以 data URI 内联，不额外起资源路由。
-- **官方同款**：默认壁纸照着 deepseek.com 首页烤的——`#9cc1e7 → 透明` 的蓝色天幕、域扭曲 fBm 云絮、中心亮斑，网格用 CSS 重复渐变叠（不烘进位图，缩放不起摩尔纹）。
+- **官方同款**：默认壁纸照着 deepseek.com 首页烤的——上浅蓝（约 `#e5ecf6`）、下近白（约 `#f2f4f8`）的近平面色场，只在中间带淡淡的域扭曲 fBm 云絮和中心亮斑；网格用 CSS 重复渐变叠（不烘进位图，缩放不起摩尔纹）。
 - **官方机制上屏**：`ctx.theme.overrideTokens()` 把 `--dsw-alias-bg-base` 换成半透明 rgba，`body::before` 固定层画图；插件禁用/卸载时全部自动回滚，不留脏样式。
 - **跟随明暗**：每套内置壁纸都有亮色、深色两张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
@@ -90,7 +90,7 @@ target: dsh-wallpaper
 ## 开发
 
 ```sh
-npm run check        # 重新生成 bundle + 语法检查 + 24 条行为测试
+npm run check        # 重新生成 bundle + 语法检查 + 30 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI）
 npm run wallpapers   # 重画内置壁纸（需 python3 + `pip install pillow numpy`；固定种子可复现）
@@ -113,7 +113,7 @@ dsh-wallpaper/
 ├── tests/client-behavior.test.mjs   # 浏览器半行为测试（假 DOM / React / fetch）
 ├── tests/host-routes.test.mjs       # Host 路由、fence、上传校验、重启持久性
 ├── locale/{zh,en}.json          # 插件市场标题/描述 + 设置页文案
-├── wallpapers/                  # official-*.webp / aurora-*.webp（2400×1500，12–21 KB）
+├── wallpapers/                  # official-*.webp / aurora-*.webp（2400×1500，11–20 KiB）+ *.thumb.webp（336×210）
 └── icon.svg                     # 插件图标
 ```
 
@@ -123,13 +123,14 @@ dsh-wallpaper/
 |---|---|
 | 官方「纯色背景」是谁画的 | 会话列 `_centerCol` / 底部行 `.bottomRow` 用 `--dsw-alias-bg-base`；侧栏 `_sidebarCol` 用自己的填充令牌，macOS 下还带 40% 透明渐变 |
 | 壁纸放在哪 | `body::before`：`position:fixed; inset:0; z-index:-1; pointer-events:none`，在全部内容之下、画布之上 |
-| 官网页面的云海与网格 | 云海烤成 webp（deepseek.com 的 `#9cc1e7` 天幕 + 流场粒子 → 静态 fBm）；网格是 CSS 的两条 `repeating-linear-gradient`，叠在图片上方的背景层，任意 DPI 都是 1px |
+| 官网页面的云海与网格 | 云海烤成 webp（deepseek.com 首页的浅蓝渐层 + 流场粒子 → 静态 fBm，整图实测中位色约 `#e1e9f6`）；网格是 CSS 的两条 `repeating-linear-gradient`，叠在图片上方（1.25/1.5 DPR 会抗锯齿，模糊 > 0 时也会被一起糊掉） |
 | 让壁纸透出来 | `theme.overrideTokens('dsh-wallpaper', { '--dsw-alias-bg-base': { light, dark } })`；侧栏另用 `[class*="_sidebarCol"]` 规则覆盖 |
 | 上传图片怎么上屏 | 存 Host 文件，客户端把 `/dsh-wallpaper/assets/<id>` 直接写进 `body::before` 的 `background-image`（同源、可缓存、无 object URL 生命周期） |
 | 重启不丢 | Host 写盘（`config.json` / `library.json` / `images/`）；浏览器侧完全不依赖 origin 级存储 |
 | 卸载即还原 | 样式表、token 层、body 标记、媒体查询监听、debounce 定时器全部注册在 `ctx.effect` 的清理里；Host 路由用 `webServer.register` 的 disposer 释放 |
 | 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 在 `ctx.effect` 里注入一次，不进每次渲染 |
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
+| 侧栏通透 | 除了 `[class*="_sidebarCol"]`，还覆盖官方令牌 `--dsw-specific-sidebar-fill`（Windows 标题栏也读它）；透明通道由 `--dwp-sidebar-*` 驱动 |
 | 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
 | Host 连不上可自愈 | 页面在宿主半未加载时给出「重试」按钮；单张图上传失败只报该文件，不会把整个图库判成不可用 |
 
@@ -137,12 +138,14 @@ dsh-wallpaper/
 
 壁纸是常驻的全屏图层，所以这块专门收了口：
 
-- **样式重建**：`body::before` 的规则里带着两张内联 webp（约 38 KB base64），只在切换壁纸（官方 / 极光 / 某张自定义图）时重写一次；拖动滑杆只改 `--dwp-blur` / `--dwp-scale` / `--dwp-sidebar-*` 四个自定义属性。
+- **样式重建**：`body::before` 的规则里带着内联 webp，只在切换壁纸（官方 / 极光 / 某张自定义图）时重写一次；拖动滑杆只改 `--dwp-panel-alpha` / `--dwp-filter` / `--dwp-transform` / `--dwp-sidebar-*` 这些自定义属性。
+- **主题层不参与拖动**：`theme.overrideTokens` 会 bump revision 并让每个主题消费者重渲染，所以 token 只在启用时注册一次，透明度用 `rgba(..., var(--dwp-panel-alpha))` 从 CSS 变量读——拖滑杆不触发任何 `theme/change`。
 - **重绘合并**：所有状态变化走 `requestAnimationFrame` 合并，一帧最多重绘一次；快速拖动 100+ 次/秒的触控板也不会把主线程刷满。
-- **token 层**：`theme.overrideTokens` 会让整个应用重算样式，因此只在取整后的不透明度变化时重新注册（`0.01` 级别的抖动不会触发）。
-- **磁盘**：`PATCH` 有 220 ms 防抖，拖动滑杆最多约 4 次/秒落盘；上传图片走 `immutable` 缓存 + sha256 ETag，页面重载不会重复读盘。
-- **内存**：每张 2400×1500 的内置图画出来约 13.7 MB 解码位图，只有当前明暗用的那一张（加另一种配色）会被解码；模糊 > 0 会让合成器多一层全屏纹理，默认 0 时不额外建层。
-- **已知取舍**：模糊值调得越大，全屏图层重绘越贵；想要最省就用默认的 0。
+- **默认不建额外图层**：模糊为 0 时 `filter/transform` 都是 `none`，浏览器不分配 filter 渲染面、也不多一层合成层；模糊 > 0 才按 `3×blur/视口` 动态放大，避免边缘露底。
+- **缩略图**：设置页 168 px 卡片用 336×210 的缩略图（内置图各约 700 B），不会为一张卡片解码 13.7 MB 大图。
+- **磁盘/网络**：`PATCH` 220 ms 防抖（拖动期间 0 次写、松手 1 次）；资产读取改成异步 `readFile` + 32 MB LRU + `If-None-Match` 304，不阻塞 Host 事件循环；同值 PATCH 不再落盘。
+- **内存**：每张 2400×1500 内置图解码约 13.7 MB，只有当前明暗的那张被解码；上传超过 4000 万像素直接拒绝（否则解码可能吃掉几百 MB）。
+- **已知取舍**：模糊值调得越大，全屏图层重绘越贵；想要最省就用默认的 0。自定义图的缩略图仍是原图缩放，图特别大时打开设置会有一次解码尖峰。
 
 ## 已知边界
 
@@ -151,7 +154,9 @@ dsh-wallpaper/
 - 上传是整文件 POST，没有进度条（本地回环很快）；失败在页面行内报错。
 - 同一时刻只有一张「当前壁纸」：自定义图库可以有多张，但明暗共用一个图。
 - 「官方」是照着 deepseek.com 当前首页配色烘的静态图，官网改版不会自动跟；要跟就重跑 `npm run wallpapers` 改预设。
-- 行为测试覆盖 26 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
+- 上传动图（GIF/AVIF/动画 WebP）会让全屏背景逐帧解码，建议用静态图。
+- 自定义图的缩略图直接复用原图，没有服务端缩放。
+- 行为测试覆盖 30 条契约，**不覆盖观感**——颜色、通透度是否好看要人眼看。
 
 ## License
 

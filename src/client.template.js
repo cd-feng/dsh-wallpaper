@@ -33,6 +33,8 @@ window.__ModuleLoader__.load({
     const API = "/dsh-wallpaper";
 
     const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+    // 40 MP keeps the decoded RGBA around 160 MB instead of "whatever fits in 20 MB".
+    const MAX_PIXELS = 40 * 1000 * 1000;
     const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
     const ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -43,8 +45,12 @@ window.__ModuleLoader__.load({
     const PERSIST_DELAY = 220;
     const DEFAULTS = Object.freeze({ mode: "official", customId: null, panelOpacity: 52, blur: 0 });
 
-    // Injected by scripts/build-client.mjs: { aurora: { light, dark }, official: { light, dark } }.
+    // Injected by scripts/build-client.mjs:
+    //   { aurora: { light, dark, thumb }, official: { light, dark, thumb } }
+    // `thumb` is a 336x210 bake, so a 168 px card never decodes a 2400x1500 image.
     const WALLPAPERS = /* __WALLPAPERS__ */ null;
+    const THUMB_OFFICIAL = `url("${WALLPAPERS.official.thumb}")`;
+    const THUMB_AURORA = `url("${WALLPAPERS.aurora.thumb}")`;
 
     // ---------------------------------------------------------------- locale
 
@@ -72,13 +78,16 @@ window.__ModuleLoader__.load({
       uploadRejected: "这些文件没有导入：",
       reasonType: "不是支持的图片格式",
       reasonSize: "超过 20 MB",
+      reasonPixels: "像素太大（超过 4000 万像素）",
       opacity: "面板不透明度",
       blur: "背景模糊",
       sliderValue: "{value}%",
       blurValue: "{value}px",
       hintReduced: "系统开启了「降低透明度」，壁纸已暂停。",
       hintMissing: "选中的图片已不存在，当前显示内置壁纸。",
-      hintLocal: "图片路径：~/.dsh/dsh-wallpaper-desktop/images/（随插件数据保存，清理该目录即删除）。",
+      hintLocal: "图片保存在插件数据目录（<DSH_HOME>/dsh-wallpaper[-desktop]/images/），清掉即可删除。",
+      saveFailed: "设置没有写进磁盘：{error}",
+      saveRetry: "重新保存",
       bytes: "B",
       kilobytes: "KB",
       megabytes: "MB",
@@ -108,13 +117,16 @@ window.__ModuleLoader__.load({
       uploadRejected: "These files were skipped:",
       reasonType: "unsupported image format",
       reasonSize: "larger than 20 MB",
+      reasonPixels: "larger than 40 megapixels",
       opacity: "Panel opacity",
       blur: "Background blur",
       sliderValue: "{value}%",
       blurValue: "{value}px",
       hintReduced: "The system “reduce transparency” setting is on, so the wallpaper is paused.",
       hintMissing: "The selected image is gone; showing the built-in wallpaper.",
-      hintLocal: "Images live in ~/.dsh/dsh-wallpaper-desktop/images/ and are removed with the plugin data.",
+      hintLocal: "Images live in the plugin data directory (<DSH_HOME>/dsh-wallpaper[-desktop]/images/); remove it to delete them.",
+      saveFailed: "Settings were not written to disk: {error}",
+      saveRetry: "Save again",
       bytes: "B",
       kilobytes: "KB",
       megabytes: "MB",
@@ -123,6 +135,7 @@ window.__ModuleLoader__.load({
     // ----------------------------------------------------------------- utils
 
     function clamp(value, min, max, fallback) {
+      if (value === null || value === undefined || value === "") return fallback;
       const number = Number(value);
       if (!Number.isFinite(number)) return fallback;
       return Math.min(max, Math.max(min, Math.round(number)));
@@ -193,15 +206,21 @@ window.__ModuleLoader__.load({
       let timer = 0;
       let inFlight = false;
       let queued = null;
+      let disposed = false;
+      let persistError = "";
+      /** Bumped by every local change, so a slow PATCH cannot revert a fresh edit. */
+      let revision = 0;
 
       const emit = () => {
+        if (disposed) return;
         for (const listener of [...listeners]) listener();
       };
 
       const persist = () => {
-        if (queued === null) return;
+        if (disposed || queued === null) return;
         if (inFlight) return;
         const body = queued;
+        const sentRevision = revision;
         queued = null;
         inFlight = true;
         requestJson(`${API}/config`, {
@@ -210,12 +229,21 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(body),
         })
           .then((payload) => {
+            if (disposed) return;
+            if (persistError !== "") {
+              persistError = "";
+              emit();
+            }
+            if (revision !== sentRevision) return;
             if (payload !== null && typeof payload === "object" && payload.config !== undefined) {
               applyHost(payload.config);
             }
           })
-          .catch(() => {
-            /* 本地值先留着，下次改动会再试 */
+          .catch((failure) => {
+            // 本地值先留着，但要让用户知道没写盘；flush() 会再试一次。
+            if (disposed) return;
+            persistError = messageOf(failure);
+            emit();
           })
           .finally(() => {
             inFlight = false;
@@ -224,6 +252,7 @@ window.__ModuleLoader__.load({
       };
 
       const schedule = () => {
+        if (disposed) return;
         queued = { ...state };
         if (timer !== 0) window.clearTimeout(timer);
         timer = window.setTimeout(() => {
@@ -234,6 +263,7 @@ window.__ModuleLoader__.load({
 
       /** Host 是权威：拉回/回写成功后同步本地快照，但不回写 Host，避免环路。 */
       const applyHost = (config) => {
+        if (disposed) return;
         const next = normalizeState(config);
         if (sameState(next, state)) return;
         state = Object.freeze(next);
@@ -252,22 +282,41 @@ window.__ModuleLoader__.load({
         set(patch) {
           const next = normalizeState({ ...state, ...patch });
           if (sameState(next, state)) return;
+          revision += 1;
           state = Object.freeze(next);
           emit();
           schedule();
         },
+        /** 保存失败的详情；空串表示已经落盘。 */
+        persistError: () => persistError,
+        /** 立即重试一次挂起的写入（页面「重新保存」）。 */
+        flush() {
+          if (disposed) return;
+          if (queued === null && !inFlight) queued = { ...state };
+          if (timer !== 0) {
+            window.clearTimeout(timer);
+            timer = 0;
+          }
+          persist();
+        },
         dispose() {
+          disposed = true;
           if (timer !== 0) window.clearTimeout(timer);
           timer = 0;
+          queued = null;
         },
       };
     }
 
     function createLibrary(store) {
-      let snapshot = { status: "loading", images: [], error: "" };
+      let snapshot = { status: "loading", images: [], urls: new Map(), error: "" };
       const listeners = new Set();
       const patch = (next) => {
-        snapshot = { ...snapshot, ...next };
+        const merged = { ...snapshot, ...next };
+        if (next.images !== undefined) {
+          merged.urls = new Map(merged.images.map((image) => [image.id, `${API}/assets/${image.id}`]));
+        }
+        snapshot = merged;
         for (const listener of [...listeners]) listener();
       };
       const normalizeImage = (raw) => ({
@@ -295,8 +344,7 @@ window.__ModuleLoader__.load({
         },
         urlFor(id) {
           if (typeof id !== "string" || !ASSET_ID.test(id)) return null;
-          const known = snapshot.images.some((image) => image.id === id);
-          return known ? `${API}/assets/${id}` : null;
+          return snapshot.urls.get(id) ?? null;
         },
         async load() {
           try {
@@ -336,16 +384,42 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ wallpaper
 
+    /**
+     * A Gaussian blur of radius r bleeds ~3r px past the element box. Size the
+     * upscale from the viewport so the feathered border stays off-screen instead
+     * of a fixed 1.03 that only covers blur <= 4 at a 1440 px window.
+     */
+    function bleedScale(blur) {
+      const width = typeof window.innerWidth === "number" ? window.innerWidth : 0;
+      const height = typeof window.innerHeight === "number" ? window.innerHeight : 0;
+      const viewport = Math.min(width > 0 ? width : 1280, height > 0 ? height : 800);
+      return roundTo(1 + (3 * blur) / Math.max(viewport, 320), 4);
+    }
+
     function opacityAlpha(state) {
       return roundTo(state.panelOpacity / 100, 3);
     }
 
-    function buildTokens(state) {
-      const alpha = opacityAlpha(state);
+    /**
+     * The translucent panel colour, registered once. The alpha is a CSS variable
+     * (`--dwp-panel-alpha`) instead of a baked number: the theme service bumps
+     * its revision and emits `theme/change` on every override, which re-renders
+     * every theme consumer — far too expensive to do on every slider frame. The
+     * browser re-resolves `var()` inline, and `rgba()` clamps the dark +0.06.
+     */
+    function buildTokens() {
+      // Two plain `var()` numbers, no `calc()`: the alpha slot takes a <number>
+      // and a substituted number is the least surprising thing to hand a browser.
       return {
         "--dsw-alias-bg-base": {
-          light: `rgba(255, 255, 255, ${alpha})`,
-          dark: `rgba(21, 21, 23, ${Math.min(1, roundTo(alpha + 0.06, 3))})`,
+          light: "rgba(255, 255, 255, var(--dwp-panel-alpha, 0.52))",
+          dark: "rgba(21, 21, 23, var(--dwp-panel-alpha-dark, 0.58))",
+        },
+        // The documented sidebar token, so surfaces that read it (Windows
+        // titlebar included) stay in sync with the translucent column.
+        "--dsw-specific-sidebar-fill": {
+          light: "rgba(249, 250, 251, var(--dwp-sidebar-light, 0.68))",
+          dark: "rgba(27, 27, 28, var(--dwp-sidebar-dark, 0.74))",
         },
       };
     }
@@ -357,10 +431,14 @@ window.__ModuleLoader__.load({
 
     function wallpaperUrls(state, customUrl) {
       if (state.mode === "custom" && customUrl !== null) {
-        return { light: customUrl, dark: customUrl };
+        // Fallback under the upload: if the file is gone or undecodable the
+        // browser drops to the next image instead of showing a transparent hole.
+        const fallback = builtinPair("official");
+        return { light: [customUrl, fallback.light], dark: [customUrl, fallback.dark] };
       }
       // 自定义图还没读到、或选择失效时，先用内置图占位。
-      return builtinPair(state.mode);
+      const pair = builtinPair(state.mode);
+      return { light: [pair.light], dark: [pair.dark] };
     }
 
     const GRID_CELL = 56;
@@ -371,7 +449,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The官网背景的细网格：烘焙进位图会在缩放时起摩尔纹，所以用 CSS 重复渐变叠在
-     * 图片之上（第一层在最上面），任意 DPI 都是 1px 实线。
+     * 图片之上（第一层在最上面）。1px 在 1.25/1.5 DPR 会抗锯齿，而且 blur > 0 时
+     * 网格和图片在同一层，也会被一起糊掉——想要绝对锐利就得拆成独立图层。
      */
     function gridLayers(line) {
       return [
@@ -380,18 +459,19 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    function layerRule(image, layers) {
+    function layerRule(images, layers) {
       const extras = layers ?? [];
-      const layersCss = [...extras, `url("${image}")`];
+      const urls = Array.isArray(images) ? images : [images];
+      const layersCss = [...extras, ...urls.map((image) => `url("${image}")`)];
       return [
         `content:"";position:fixed;inset:0;z-index:-1;pointer-events:none`,
         `background-image:${layersCss.join(",")}`,
-        `background-size:${[...extras.map(() => "auto"), "cover"].join(",")}`,
-        `background-position:${[...extras.map(() => "0 0"), "center"].join(",")}`,
-        `background-repeat:${[...extras.map(() => "repeat"), "no-repeat"].join(",")}`,
+        `background-size:${[...extras.map(() => "auto"), ...urls.map(() => "cover")].join(",")}`,
+        `background-position:${[...extras.map(() => "0 0"), ...urls.map(() => "center")].join(",")}`,
+        `background-repeat:${[...extras.map(() => "repeat"), ...urls.map(() => "no-repeat")].join(",")}`,
         // Driven by custom properties: the blur slider then costs one property
         // write per frame instead of a 40 KB CSS re-parse.
-        `filter:blur(var(--dwp-blur, 0px));transform:scale(var(--dwp-scale, 1))`,
+        `filter:var(--dwp-filter, none);transform:var(--dwp-transform, none)`,
       ].join(";");
     }
 
@@ -414,13 +494,13 @@ window.__ModuleLoader__.load({
         // 侧栏有自己的填充令牌和渐变，单独给一层半透明。
         `body[${BODY_ATTR}] [class*="_sidebarCol"]{background:${sidebarGradientLight},rgba(249, 250, 251, var(--dwp-sidebar-light, 0.68))}`,
       ];
-      if (urls.dark !== urls.light) {
+      if (urls.dark.join("|") !== urls.light.join("|")) {
         rules.push(
           `body[${BODY_ATTR}][data-ds-dark-theme]::before{${layerRule(urls.dark, grid ? gridLayers(GRID_LINE_DARK) : [])}}`,
         );
       }
       rules.push(
-        `body[${BODY_ATTR}][data-ds-dark-theme] [class*="_sidebarCol"]{background:${sidebarGradientDark},rgba(27, 27, 28, var(--dwp-sidebar-dark, 0.74))}`,
+        `body[${BODY_ATTR}][data-ds-dark-theme] [class*="_sidebarCol"]{background:${sidebarGradientDark},var(--dsw-specific-sidebar-fill)}`,
       );
       return rules.join("\n");
     }
@@ -435,12 +515,13 @@ window.__ModuleLoader__.load({
       ".dwp-section{display:flex;flex-direction:column;gap:9px}",
       ".dwp-sectionTitle{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}",
       ".dwp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}",
-      ".dwp-card{position:relative;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;overflow:hidden;background:var(--dsw-alias-bg-layer-1);transition:border-color .12s ease,box-shadow .12s ease}",
+      ".dwp-card{position:relative;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);transition:border-color .12s ease,box-shadow .12s ease}",
       ".dwp-card:hover{border-color:var(--dsw-alias-border-l2)}",
       ".dwp-card[data-selected]{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary)}",
-      ".dwp-cardSelect{appearance:none;display:flex;flex-direction:column;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer}",
-      ".dwp-cardSelect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
-      ".dwp-thumb{display:block;aspect-ratio:16/10;background-size:cover;background-position:center;background-repeat:no-repeat}",
+      ".dwp-cardSelect{appearance:none;display:flex;flex-direction:column;width:100%;padding:0;border:0;border-radius:9px;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer}",
+      ".dwp-cardSelect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}",
+      ".dwp-delete:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
+      ".dwp-thumb{display:block;aspect-ratio:16/10;border-radius:9px 9px 0 0;overflow:hidden;background-size:cover;background-position:center;background-repeat:no-repeat}",
       ".dwp-cardLabel{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;min-height:20px;font-size:11px;color:var(--dsw-alias-label-secondary)}",
       ".dwp-cardName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".dwp-badge{flex:0 0 auto;font-size:10px;color:var(--dsw-alias-brand-primary);border:1px solid var(--dsw-alias-brand-primary);border-radius:999px;padding:0 6px}",
@@ -475,8 +556,15 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS);
 
         const [pendingDelete, setPendingDelete] = React.useState(null);
+        const [removingId, setRemovingId] = React.useState(null);
         const [busy, setBusy] = React.useState(false);
         const [error, setError] = React.useState("");
+        const [saveError, setSaveError] = React.useState(store.persistError());
+        const reducedHint = React.useSyncExternalStore(
+          subscribeReducedTransparency,
+          readReducedTransparency,
+          readReducedTransparency,
+        );
         const inputRef = React.useRef(null);
 
         const images = snapshot.images;
@@ -488,6 +576,8 @@ window.__ModuleLoader__.load({
           const timer = window.setTimeout(() => setPendingDelete(null), 3000);
           return () => window.clearTimeout(timer);
         }, [pendingDelete]);
+
+        React.useEffect(() => store.subscribe(() => setSaveError(store.persistError())), []);
 
         const pickFiles = () => {
           if (inputRef.current !== null) inputRef.current.click();
@@ -502,7 +592,7 @@ window.__ModuleLoader__.load({
           const rejected = [];
           let firstId = null;
           for (const file of files) {
-            const reason = validateFile(file, t);
+            const reason = await validateFile(file, t);
             if (reason !== null) {
               rejected.push(`${file.name}: ${reason}`);
               continue;
@@ -523,12 +613,18 @@ window.__ModuleLoader__.load({
         };
 
         const removeImage = async (id) => {
+          if (removingId !== null) return;
           setPendingDelete(null);
+          setRemovingId(id);
           setError("");
           try {
             await library.remove(id);
           } catch (failure) {
-            setError(messageOf(failure));
+            // 404 means another tab/click already removed it: refresh instead of scolding.
+            if (/not found|404/i.test(messageOf(failure))) await library.load();
+            else setError(messageOf(failure));
+          } finally {
+            setRemovingId(null);
           }
         };
 
@@ -569,6 +665,8 @@ window.__ModuleLoader__.load({
                     key: "delete",
                     type: "button",
                     className: "dwp-delete",
+                    disabled: removingId !== null,
+                    "aria-label": `${t("delete")} ${options.name}`,
                     onClick: () => {
                       if (pendingDelete === options.id) void removeImage(options.id);
                       else setPendingDelete(options.id);
@@ -583,7 +681,7 @@ window.__ModuleLoader__.load({
           name: t("optionBuiltin"),
           title: t("optionBuiltinDesc"),
           selected: selectedBuiltin,
-          thumbStyle: { backgroundImage: `url("${WALLPAPERS.aurora.dark}")` },
+          thumbStyle: { backgroundImage: THUMB_AURORA },
           onSelect: () => store.set({ mode: "builtin" }),
         });
 
@@ -592,7 +690,7 @@ window.__ModuleLoader__.load({
           name: t("optionOfficial"),
           title: t("optionOfficialDesc"),
           selected: selectedOfficial,
-          thumbStyle: { backgroundImage: `url("${WALLPAPERS.official.light}")` },
+          thumbStyle: { backgroundImage: THUMB_OFFICIAL },
           onSelect: () => store.set({ mode: "official" }),
         });
 
@@ -654,6 +752,18 @@ window.__ModuleLoader__.load({
             { className: "dwp-head" },
             h("h2", { className: "dwp-title" }, t("title")),
             h("p", { className: "dwp-hint" }, t("intro")),
+            saveError === ""
+              ? null
+              : h(
+                  "div",
+                  { className: "dwp-error", role: "alert" },
+                  `${t("saveFailed").replace("{error}", saveError)} `,
+                  h(
+                    "button",
+                    { type: "button", className: "dwp-btn", onClick: () => store.flush() },
+                    t("saveRetry"),
+                  ),
+                ),
           ),
           h(
             "div",
@@ -693,7 +803,7 @@ window.__ModuleLoader__.load({
           error === "" ? null : h("div", { className: "dwp-error", role: "alert" }, error),
           selectedMissing
             ? h("p", { className: "dwp-hint" }, t("hintMissing"))
-            : reducedTransparency()
+            : reducedHint
               ? h("p", { className: "dwp-hint" }, t("hintReduced"))
               : null,
           h(
@@ -714,13 +824,103 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function validateFile(file, t) {
+    /**
+     * Read intrinsic width/height from the first 64 KB of the file. A 20 MB
+     * budget alone still allows a 100 MP image, and a 100 MP image decodes to
+     * ~400 MB of RGBA once the wallpaper uses it.
+     */
+    function imageDimensions(bytes) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const u16be = (offset) => view.getUint16(offset, false);
+      const u32be = (offset) => view.getUint32(offset, false);
+      const u24be = (offset) => (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
+
+      // PNG: IHDR is the first chunk.
+      if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+        return { width: u32be(16), height: u32be(20) };
+      }
+      // GIF: logical screen descriptor.
+      if (bytes.length >= 10 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+        return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+      }
+      // WebP: VP8X carries the canvas, VP8L a packed 14-bit size, VP8 a frame header.
+      if (bytes.length >= 30 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+        const chunk = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+        if (chunk === "VP8X") return { width: u24be(24) + 1, height: u24be(27) + 1 };
+        if (chunk === "VP8L") {
+          const bits = view.getUint32(21, true);
+          return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+        }
+        if (chunk === "VP8 ") {
+          return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+        }
+      }
+      // JPEG: walk the markers until a start-of-frame segment.
+      if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+        let offset = 2;
+        while (offset + 9 < bytes.length) {
+          if (bytes[offset] !== 0xff) {
+            offset += 1;
+            continue;
+          }
+          const marker = bytes[offset + 1];
+          if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+            offset += 2;
+            continue;
+          }
+          const length = u16be(offset + 2);
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            return { width: u16be(offset + 7), height: u16be(offset + 5) };
+          }
+          if (length < 2) return null;
+          offset += 2 + length;
+        }
+        return null;
+      }
+      // AVIF/HEIF: the first `ispe` box carries the display size.
+      for (let index = 0; index + 16 <= bytes.length; index += 1) {
+        if (bytes[index] === 0x69 && bytes[index + 1] === 0x73 && bytes[index + 2] === 0x70 && bytes[index + 3] === 0x65) {
+          return { width: u32be(index + 8), height: u32be(index + 12) };
+        }
+      }
+      return null;
+    }
+
+    async function validateFile(file, t) {
       if (!ALLOWED_TYPES.includes(file.type)) return t("reasonType");
       if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) return t("reasonSize");
+      if (typeof file.slice !== "function") return null;
+      let size = null;
+      try {
+        size = imageDimensions(new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()));
+      } catch {
+        return null;
+      }
+      if (size !== null && size.width * size.height > MAX_PIXELS) return t("reasonPixels");
       return null;
     }
 
     // -------------------------------------------------------------- effects
+
+    const REDUCE_QUERY = "(prefers-reduced-transparency: reduce)";
+
+    function readReducedTransparency() {
+      return typeof window.matchMedia === "function" && window.matchMedia(REDUCE_QUERY).matches;
+    }
+
+    function subscribeReducedTransparency(onChange) {
+      if (typeof window.matchMedia !== "function") return () => {};
+      const media = window.matchMedia(REDUCE_QUERY);
+      if (typeof media.addEventListener === "function") {
+        media.addEventListener("change", onChange);
+        return () => media.removeEventListener("change", onChange);
+      }
+      if (typeof media.addListener === "function") {
+        media.addListener(onChange);
+        return () => media.removeListener(onChange);
+      }
+      return () => {};
+    }
 
     function reducedTransparency() {
       try {
@@ -749,7 +949,6 @@ window.__ModuleLoader__.load({
       const root = doc.documentElement ?? null;
 
       let disposeTokens = null;
-      let tokenKey = null;
       let structureKey = null;
       let frame = 0;
       let disposed = false;
@@ -763,8 +962,10 @@ window.__ModuleLoader__.load({
           ? (id) => window.cancelAnimationFrame(id)
           : (id) => window.clearTimeout(id);
 
+      const appliedProperties = new Set();
       const setProperty = (name, value) => {
         if (root === null || root.style === undefined || typeof root.style.setProperty !== "function") return;
+        appliedProperties.add(name);
         root.style.setProperty(name, value);
       };
 
@@ -772,7 +973,6 @@ window.__ModuleLoader__.load({
         if (disposeTokens === null) return;
         const release = disposeTokens;
         disposeTokens = null;
-        tokenKey = null;
         release();
       };
 
@@ -802,19 +1002,21 @@ window.__ModuleLoader__.load({
         // Slider values ride on custom properties: one property write per frame
         // instead of re-parsing a stylesheet that carries two inlined images.
         const alpha = opacityAlpha(state);
+        setProperty("--dwp-panel-alpha", String(alpha));
+        setProperty("--dwp-panel-alpha-dark", String(Math.min(1, roundTo(alpha + 0.06, 3))));
         setProperty("--dwp-sidebar-light", String(Math.min(1, roundTo(alpha + 0.16, 3))));
         setProperty("--dwp-sidebar-dark", String(Math.min(1, roundTo(alpha + 0.22, 3))));
-        setProperty("--dwp-blur", `${state.blur}px`);
-        setProperty("--dwp-scale", state.blur > 0 ? "1.03" : "1");
-
-        // The translucent panels come from the official theme-token layer; only
-        // the opacity moves it, so skip the whole-app restyle when it is stable.
-        const nextTokenKey = String(alpha);
-        if (nextTokenKey !== tokenKey) {
-          detachTokens();
-          disposeTokens = ctx.theme.overrideTokens(THEME_SOURCE, buildTokens(state));
-          tokenKey = nextTokenKey;
+        if (state.blur > 0) {
+          setProperty("--dwp-filter", `blur(${state.blur}px)`);
+          setProperty("--dwp-transform", `scale(${bleedScale(state.blur)})`);
+        } else {
+          setProperty("--dwp-filter", "none");
+          setProperty("--dwp-transform", "none");
         }
+
+        // One token layer for the whole session: it reads `--dwp-panel-alpha`,
+        // so dragging the slider only writes that variable.
+        if (disposeTokens === null) disposeTokens = ctx.theme.overrideTokens(THEME_SOURCE, buildTokens());
       };
 
       const schedule = () => {
@@ -832,7 +1034,16 @@ window.__ModuleLoader__.load({
       if (typeof media.addEventListener === "function") media.addEventListener("change", onMedia);
       else if (typeof media.addListener === "function") media.addListener(onMedia);
 
-      paintNow();
+      const onResize = () => schedule();
+      if (typeof window.addEventListener === "function") window.addEventListener("resize", onResize);
+
+      // Paint the host-selected artwork first: painting the defaults synchronously
+      // flashes the official image before a custom choice lands.
+      const paintWhenKnown = () => {
+        if (library.get().status !== "loading") paintNow();
+      };
+      paintWhenKnown();
+      const bootFallback = window.setTimeout(paintWhenKnown, 1000);
 
       return () => {
         disposed = true;
@@ -842,16 +1053,22 @@ window.__ModuleLoader__.load({
         }
         unsubscribeStore();
         unsubscribeLibrary();
+        window.clearTimeout(bootFallback);
+        if (typeof window.removeEventListener === "function") window.removeEventListener("resize", onResize);
         if (typeof media.removeEventListener === "function") media.removeEventListener("change", onMedia);
         else if (typeof media.removeListener === "function") media.removeListener(onMedia);
         detachTokens();
         styleTag.remove();
         doc.body.removeAttribute(BODY_ATTR);
+        if (root !== null && root.style !== undefined && typeof root.style.removeProperty === "function") {
+          for (const name of appliedProperties) root.style.removeProperty(name);
+        }
+        appliedProperties.clear();
       };
     }
 
     function apply(ctx) {
-      ctx.locale.register(NS, { zh: ZH, en: EN });
+      ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }));
 
       const store = createStore();
       const library = createLibrary(store);

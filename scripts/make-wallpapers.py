@@ -12,7 +12,8 @@ the app draws translucent panels over them:
   grid to CSS (crisp at any DPI instead of moiré in a bitmap).
 
 Output: wallpapers/<name>.webp at 2400x1500 (16:10, cropped by
-`background-size: cover`).
+`background-size: cover`), plus wallpapers/<name>.thumb.webp at 336x210, which
+is what the 168 px gallery cards use — a card must not decode 13.7 MB.
 
 Run: python3 scripts/make-wallpapers.py
 """
@@ -37,6 +38,9 @@ HEIGHT = 1500
 # is added at full resolution so it stays crisp instead of turning into mush.
 FIELD_WIDTH = 600
 FIELD_HEIGHT = 375
+# 168x105 CSS px at DPR 2 is exactly 336x210.
+THUMB_WIDTH = 336
+THUMB_HEIGHT = 210
 OUT_DIR = Path(__file__).resolve().parent.parent / "wallpapers"
 
 
@@ -291,6 +295,10 @@ def render(name: str, **preset) -> Path:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f"{name}.webp"
     image.save(path, format="WEBP", quality=82, method=6)
+    thumb = OUT_DIR / f"{name}.thumb.webp"
+    image.resize((THUMB_WIDTH, THUMB_HEIGHT), Image.Resampling.LANCZOS).save(
+        thumb, format="WEBP", quality=80, method=6,
+    )
     return path
 
 
@@ -408,7 +416,8 @@ def main() -> None:
         ("official-light", OFFICIAL_LIGHT_PRESET),
     ):
         path = render(name, **dict(preset))
-        print(f"{path.name}: {path.stat().st_size:,} bytes")
+        thumb = path.with_name(f"{name}.thumb.webp")
+        print(f"{path.name}: {path.stat().st_size:,} bytes (+ thumb {thumb.stat().st_size:,})")
 
 
 if __name__ == "__main__":

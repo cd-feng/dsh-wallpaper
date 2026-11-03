@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 permissions:
@@ -14,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,11 +34,29 @@ jobs:
         run: npm test
 
       - name: Bundle is up to date
-        if: matrix.node == 22
+        if: matrix.node == 24
         run: |
           node scripts/build-client.mjs
           git diff --exit-code -- lib/client.js
 
+      # The runtime files must ship; a missing lib/ or cordis.patch.yml makes the
+      # plugin unusable for everyone installing from git.
       - name: Publishable file list
-        if: matrix.node == 22
-        run: npm pack --dry-run
+        if: matrix.node == 24
+        run: |
+          npm pack --dry-run --json > pack.json
+          node - <<'NODE'
+          const files = new Map(JSON.parse(require("node:fs").readFileSync("pack.json", "utf8"))[0].files.map((file) => [file.path, file.size]));
+          const required = ["lib/client.js", "lib/index.js", "cordis.patch.yml", "locale/zh.json", "locale/en.json", "icon.svg", "package.json"];
+          const missing = required.filter((path) => !files.has(path) || files.get(path) === 0);
+          if (missing.length > 0) {
+            console.error(`missing runtime files in the tarball: ${missing.join(", ")}`);
+            process.exit(1);
+          }
+          const client = files.get("lib/client.js");
+          if (client < 50_000 || client > 400_000) {
+            console.error(`lib/client.js is ${client} bytes; the inlined artwork should keep it in 50–400 KB`);
+            process.exit(1);
+          }
+          console.log(`tarball carries all runtime files (${files.size} files, client ${client} bytes)`);
+          NODE

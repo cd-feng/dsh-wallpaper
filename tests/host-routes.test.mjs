@@ -185,6 +185,13 @@ test("uploads an image, selects it, serves it and keeps it on disk", async () =>
   assert.match(asset.headers.etag, /^"[0-9a-f]{64}"$/);
   assert.deepEqual(asset.body(), PNG);
 
+  // The page sends If-None-Match on reload; a matching tag answers 304 with no body.
+  const cached = await call(app.routes, "GET", `/dsh-wallpaper/assets/${image.id}`, {
+    headers: { "if-none-match": asset.headers.etag },
+  });
+  assert.equal(cached.status, 304);
+  assert.equal(cached.body().length, 0);
+
   const snapshot = await state(app);
   assert.equal(snapshot.json().config.mode, "custom");
   app.dispose();

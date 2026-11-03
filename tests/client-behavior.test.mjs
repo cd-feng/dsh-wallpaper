@@ -118,6 +118,7 @@ function createLocale() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    registeredCount: () => dictionaries.size,
     bind(namespace) {
       const self = this;
       return (key, params) => self.translate(namespace, key, params);
@@ -139,7 +140,7 @@ function clamp(value, min, max, fallback) {
 }
 
 /** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
-function createHost({ config = {}, images = [], fail = false, uploadStatus = 0 } = {}) {
+function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, patchDelay = 0 } = {}) {
   const state = {
     config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, ...config },
     images: [...images],
@@ -179,6 +180,7 @@ function createHost({ config = {}, images = [], fail = false, uploadStatus = 0 }
       return reply(200, { config: state.config, images: state.images });
     }
     if (path === "/dsh-wallpaper/config" && method === "PATCH") {
+      if (patchDelay > 0) await delay(patchDelay);
       state.config = normalize({ ...state.config, ...JSON.parse(String(init.body)) });
       return reply(200, { config: state.config, images: state.images });
     }
@@ -346,6 +348,7 @@ async function boot({ reducedTransparency = false, ...hostOptions } = {}) {
     dom,
     media,
     host,
+    locale,
     ...context,
     render() {
       React.beginRender();
@@ -433,17 +436,21 @@ test("defaults to the official-style wallpaper and cleans up on dispose", async 
   assert.match(sheet.textContent, /body\[data-dsh-wallpaper\]\[data-ds-dark-theme\]::before\{content:""/);
   assert.match(sheet.textContent, /_sidebarCol/);
 
-  assert.ok(app.overrides.length >= 1);
+  assert.equal(app.overrides.length, 1, "the token layer is registered exactly once");
   const tokens = app.overrides.at(-1).tokens;
-  assert.deepEqual(Object.keys(tokens), ["--dsw-alias-bg-base"]);
-  assert.equal(tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.52)");
-  assert.equal(tokens["--dsw-alias-bg-base"].dark, "rgba(21, 21, 23, 0.58)");
+  assert.deepEqual(Object.keys(tokens).sort(), ["--dsw-alias-bg-base", "--dsw-specific-sidebar-fill"]);
+  // The alpha is a CSS variable: dragging the slider must not re-publish the theme.
+  assert.match(tokens["--dsw-alias-bg-base"].light, /var\(--dwp-panel-alpha/);
+  assert.match(tokens["--dsw-alias-bg-base"].dark, /var\(--dwp-panel-alpha/);
+  assert.match(tokens["--dsw-specific-sidebar-fill"].light, /var\(--dwp-sidebar-light/);
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.52");
 
   app.dispose();
   assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
   assert.equal(app.dom.styleTags.length, 0);
   assert.equal(app.released.length, app.overrides.length);
   assert.ok(app.released.every((source) => source === "dsh-wallpaper"));
+  assert.equal(app.dom.rootStyle.has("--dwp-panel-alpha"), false, "custom properties are removed on dispose");
 });
 
 test("a Host-selected custom image becomes the wallpaper", async () => {
@@ -454,8 +461,10 @@ test("a Host-selected custom image becomes the wallpaper", async () => {
   assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), "custom");
   const sheet = sheetOf(app);
   assert.match(sheet.textContent, new RegExp(`url\\("/dsh-wallpaper/assets/${IMAGE_ID}"\\)`));
-  assert.doesNotMatch(sheet.textContent, /data:image\/webp;base64,/);
-  assert.equal(app.overrides.at(-1).tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.64)");
+  // The upload is the first layer; the official bake sits underneath as a fallback.
+  assert.match(sheet.textContent, new RegExp(`url\\("/dsh-wallpaper/assets/${IMAGE_ID}"\\),url\\("data:image/webp;base64,`));
+  assert.equal(app.overrides.length, 1);
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.64");
 
   const tree = app.render();
   assert.ok(cardNames(tree).includes("my-photo.jpg"));
@@ -598,9 +607,10 @@ test("a slider repaints at once and writes one debounced PATCH", async () => {
   ranges[0].props.onChange({ currentTarget: { value: "85" } });
   await app.settle();
 
-  // Both events collapse into one frame and one token-layer change.
-  assert.equal(app.overrides.length, before + 1);
-  assert.equal(app.overrides.at(-1).tokens["--dsw-alias-bg-base"].light, "rgba(255, 255, 255, 0.85)");
+  // Both events collapse into one frame; the theme layer is not re-published at
+  // all, the alpha arrives as a custom property.
+  assert.equal(app.overrides.length, before, "dragging does not re-register the token layer");
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.85");
   // The stylesheet (which carries the inlined artwork) is not rewritten, and
   // the new values arrive as custom properties instead.
   assert.equal(sheetOf(app).textContent, sheetBefore, "slider drag does not re-parse the artwork CSS");
@@ -664,5 +674,62 @@ test("the unreachable-Host message offers a retry that reloads the state", async
   retry.props.onClick();
   await delay(30);
   assert.equal(app.host.calls.filter((call) => call.path === "/dsh-wallpaper/state").length, before + 1);
+  app.dispose();
+});
+
+test("a slow PATCH cannot revert a newer slider change", async () => {
+  const app = await boot({ patchDelay: 140 });
+  const range = () => findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[0];
+
+  range().props.onChange({ currentTarget: { value: "80" } });
+  await delay(240); // the first PATCH is now in flight
+  range().props.onChange({ currentTarget: { value: "85" } });
+  await delay(120); // the stale 80 response lands inside this window
+  assert.equal(range().props.value, 85, "the stale response did not overwrite the newer value");
+
+  await delay(320);
+  assert.equal(app.host.state.config.panelOpacity, 85);
+  app.dispose();
+});
+
+test("disposing the plugin cancels the pending write", async () => {
+  const app = await boot();
+  const range = findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[0];
+  range.props.onChange({ currentTarget: { value: "70" } });
+  app.dispose();
+  await delay(320);
+  const patches = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
+  assert.equal(patches.length, 0, "no write happens after dispose");
+  assert.equal(app.host.state.config.panelOpacity, 52);
+});
+
+test("the locale dictionary is registered and released with the plugin", async () => {
+  const app = await boot();
+  assert.equal(app.locale.registeredCount(), 1);
+  app.dispose();
+  assert.equal(app.locale.registeredCount(), 0);
+});
+
+test("rejects an image with absurd pixel dimensions", async () => {
+  const app = await boot();
+  const fileInput = findAll(app.render(), (element) => element.type === "input" && element.props.type === "file")[0];
+  // A valid PNG signature + IHDR carrying 20000x20000 (400 MP).
+  const header = new Uint8Array(24);
+  header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  header.set([0, 0, 0, 13], 8);
+  header.set([0x49, 0x48, 0x44, 0x52], 12);
+  new DataView(header.buffer).setUint32(16, 20000);
+  new DataView(header.buffer).setUint32(20, 20000);
+  const file = {
+    name: "huge.png",
+    type: "image/png",
+    size: 4096,
+    slice: () => ({ arrayBuffer: async () => header.buffer }),
+  };
+  fileInput.props.onChange({ currentTarget: { files: [file], value: "" } });
+  await delay(60);
+  const posts = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/library" && call.method === "POST");
+  assert.equal(posts.length, 0, "the huge image never reaches the Host");
+  assert.match(allText(app.render()), /4000 万像素/);
   app.dispose();
 });
