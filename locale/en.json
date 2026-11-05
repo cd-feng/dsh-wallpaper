@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Wallpaper",
-    "description": "Replace the flat Harness background with a wallpaper: the default Official style bakes the deepseek.com homepage clouds and fine grid, with an aurora option and image uploads; the composer, bubbles, deliverable cards and code blocks let it show through too. Overlay opacity follows the panel by default and can be tuned on its own. Plus three bundled reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC) and a 90–110% text scale. Host-side storage survives restarts."
+    "description": "Replace the flat Harness background with a wallpaper: the default Official style bakes the deepseek.com homepage clouds and fine grid, with an aurora option and image uploads; the composer, bubbles, deliverable cards and code blocks let it show through too. Overlay opacity follows the panel by default and can be tuned on its own. Plus three bundled reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC) and a 90–110% text scale, and a sidebar brand mark that can be restyled as a glass capsule, a gradient wordmark, or both. Host-side storage survives restarts."
   }
 }

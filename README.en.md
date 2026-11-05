@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur, three bundled OFL reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC) and a 90–110% text scale.
+Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur, three bundled OFL reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC), a 90–110% text scale, and four switchable styles for the sidebar’s “deepseek · HARNESS” brand mark.
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -16,6 +16,7 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
 - **Translucent chrome (0.7)** — the composer, user bubbles, markdown code blocks and the *Edited N files* deliverable cards follow *panel opacity* instead of staying solid; the composer also frosts its backdrop so message text cannot bleed through.
 - **Overlay opacity on its own (0.8)** — those overlays track the panel slider (panel +6 %) by default; drag *Overlay opacity* in *Display* to pin a separate value, or use *Follow panel* to restore the link.
+- **Brand mark styles (0.9)** — the sidebar’s “deepseek · HARNESS” mark can be left official or restyled as *glass capsule*, *gradient wordmark*, or *glass + gradient*. Only colours, backdrop and the HARNESS badge are repainted in CSS; the official lettering and whale stay untouched. Each style has light and dark palettes and applies instantly.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
 - **Bundled fonts (0.6)** — LXGW WenKai, Noto Serif SC and Noto Sans SC, one weight each, subset to GB2312 (~3.7 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
@@ -49,13 +50,14 @@ Uninstall with `plugin_manager` `remove_bundle` (`target: dsh-wallpaper`); the i
 - **Background** — Official (default, the deepseek.com clouds + grid) / Aurora
 - **My images** — upload, click a card to apply, two-step delete
 - **Display** — panel opacity (20–100 %, also applied to the composer, bubbles, code blocks and deliverable cards), overlay opacity (20–100 %, follows the panel (+6 %) unless overridden), background blur (0–24 px)
+- **Brand mark** — official / glass capsule / gradient wordmark / glass + gradient; one click applies it
 - **Reset to defaults**
 
 ## Data
 
 | Data | Location |
 |---|---|
-| Selection + slider values | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` |
+| Selection + slider values + font + brand style | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` |
 | Uploaded images | `<DSH_HOME>/dsh-wallpaper[-desktop]/images/<id>.<ext>` |
 | Image index (sha256, size, name, time) | `<DSH_HOME>/dsh-wallpaper[-desktop]/library.json` |
 | Built-in art | inlined into `lib/client.js` |
@@ -69,7 +71,7 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/dsh-wallpaper/state` | `{ config, images, fonts }` |
-| PATCH | `/dsh-wallpaper/config` | partial `{ mode, customId, panelOpacity, blur, fontId, fontScale }` |
+| PATCH | `/dsh-wallpaper/config` | partial `{ mode, customId, panelOpacity, surfaceOpacity, blur, fontId, fontScale, brandStyle }` |
 | POST | `/dsh-wallpaper/library` | raw image bytes, `content-type` + `x-filename` (URI-encoded), magic-byte sniffed; the upload becomes the selection |
 | DELETE | `/dsh-wallpaper/library/<id>` | delete an image, fall back to the built-in wallpaper if it was selected |
 | GET | `/dsh-wallpaper/assets/<id>` | image bytes, immutable cache, sha256 ETag |
@@ -78,7 +80,7 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + verify font payload + syntax check + 46 behaviour tests
+npm run check        # rebuild bundle + verify font payload + syntax check + 54 behaviour tests
 npm test             # tests only
 npm run build        # rebuild lib/client.js (inlines wallpaper data URIs + font manifest)
 npm run fonts        # regenerate the bundled fonts (fonttools + brotli + network; sources pinned)
@@ -108,6 +110,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 
 - The sidebar rule `[class*="_sidebarCol"]` depends on upstream css-modules names; if upstream renames it, the sidebar simply falls back to the official colour.
 - The deliverable-card rules depend on upstream `vdszpW_*` / `IBlBFq_*` css-modules names; an upstream rename falls back to the solid card and breaks nothing. Same risk class as `_sidebarCol`.
+- The brand restyle relies on the two slot ids (`sidebar.brand.mark` / `sidebar.brand.name`) and on the official SVG convention (lettering and whale filled with `currentColor`, HARNESS drawn as a `rect` plate with inverted `path` letters). A redrawn lettering or renamed slot silently falls back to the official mark. The glass capsule uses `button:has()`, which needs Chromium 105+ — far below what DSH Desktop ships.
 - The built-in art is regenerated with `npm run wallpapers` (needs `python3 -m pip install pillow numpy`); the committed WebPs are already generated, so a normal install never runs Python.
 - Images are stored verbatim (no recompression); a 20 MB PNG costs 20 MB on disk.
 - Uploads are whole-file POSTs with no progress bar (loopback is fast); failures surface inline in the page.
@@ -119,7 +122,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - The font subsets cover GB2312 (6763 hanzi) plus Latin/punctuation/full-width forms; rare glyphs fall back to the system font, so mixed lines can differ slightly. Only weight 400 ships — `500/600` is synthesized by the browser.
 - If the native *Appearance → Text font* field is set, its inline `<body>` value wins over the plugin's choice; clear it to let the plugin apply.
 - The text scale targets Harness typography tokens and the conversation/code/terminal sizes; icons and spacing do not scale (this is a font scale, not a UI zoom).
-- The 46 tests cover behaviour, not aesthetics.
+- The 54 tests cover behaviour, not aesthetics.
 
 ## Data integrity
 

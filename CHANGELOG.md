@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+左侧顶部「deepseek · HARNESS」品牌标可美化：新增「品牌标识」设置分区，四选一——跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变，改动即时生效。只重绘配色、底纹与 HARNESS 徽章，官方字标与鲸鱼不动。
+
+- **实现**：官方字标由 `@deepseek-ai/dsh-client-ui-brand-official` 注册进 `sidebar.brand.mark` / `sidebar.brand.name` 两个 single slot；本插件不抢 slot，只在 CSS 里用 `[data-slot="sidebar.brand.*"]` 选中，把 SVG 路径的 `fill`（表现属性，CSS 优先级更高）换成 `url(#dwp-brand-*)` 渐变。渐变由页面里一个隐藏的 `<defs>` 节点提供：字标按 `26–182`、鲸鱼按 `0–23.16×0–17.04` 的 `userSpaceOnUse` 各自对齐，亮暗各一套色；HARNESS 徽章拆成 `rect` 底（品牌蓝实底或半透明+描边）与反白 `path` 字（白/深蓝/浅蓝）分别上色；玻璃胶囊用 `button:has([data-slot="sidebar.brand.name"])` 包住整行，`border-radius`/内阴影/hover 提亮各一套亮暗值。
+- **设置页**：「品牌标识」分区四张卡片，每张带一枚小预览（字标 + HARNESS 徽章）与说明，点选即写 `config.json`。
+- **与壁纸解耦**：品牌样式在 `paintNow()` 早期同步，不受「降低透明度」暂停影响；关闭样式时样式表清空、`<defs>` 节点移除，插件销毁时同样清理。
+- **配置**：`config.json` 新增 `brandStyle`——`off` / `glass` / `gradient` / `glass-gradient`，缺省与非法值一律回 `off`（官方原样），旧配置文件不需要迁移。
+- **测试**：新增四套样式的客户端断言（样式表内容、渐变 `defs`、切换/关闭清理、reduce-transparency 下仍生效、设置页四张卡片）与 Host 校验/持久化/重启恢复断言，共 54 条。
+
 ## 0.8.0
 
 「浮层不透明度」变成设置项：输入框、气泡、代码块与交付卡片的透明度默认跟随「面板不透明度」（+6%），在「显示」里拖动可单独调整，点「跟随面板」回到联动。

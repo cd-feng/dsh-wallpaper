@@ -186,6 +186,7 @@ test("starts with defaults and creates the data files", async () => {
     blur: 0,
     fontId: "system",
     fontScale: 100,
+    brandStyle: "off",
   });
   assert.deepEqual(payload.images, []);
   assert.equal(payload.fonts.length, 3);
@@ -364,7 +365,31 @@ test("overlay opacity persists as follow-panel or a clamped percentage", async (
   const restarted = setup({ home: app.root });
   const snapshot = await state(restarted);
   assert.equal(snapshot.json().config.surfaceOpacity, null);
+  assert.equal(snapshot.json().config.brandStyle, "off");
   assert.equal(snapshot.json().config.panelOpacity, 52);
+  restarted.dispose();
+  app.dispose();
+});
+
+test("brand style persists as one of the four documented styles", async () => {
+  const app = setup();
+  const patch = (body) =>
+    call(app.routes, "PATCH", "/dsh-wallpaper/config", { body: Buffer.from(JSON.stringify(body)) });
+
+  const chosen = await patch({ brandStyle: "glass-gradient" });
+  assert.equal(chosen.status, 200);
+  assert.equal(chosen.json().config.brandStyle, "glass-gradient");
+  assert.equal(JSON.parse(readFileSync(join(app.dataDir, "config.json"), "utf8")).brandStyle, "glass-gradient");
+
+  // Unknown or mistyped values fall back to the official mark.
+  assert.equal((await patch({ brandStyle: "neon" })).json().config.brandStyle, "off");
+  assert.equal((await patch({ brandStyle: 42 })).json().config.brandStyle, "off");
+  assert.equal((await patch({ brandStyle: "gradient" })).json().config.brandStyle, "gradient");
+
+  // A style written to disk survives a Host restart.
+  const restarted = setup({ home: app.root });
+  const snapshot = await state(restarted);
+  assert.equal(snapshot.json().config.brandStyle, "gradient");
   restarted.dispose();
   app.dispose();
 });

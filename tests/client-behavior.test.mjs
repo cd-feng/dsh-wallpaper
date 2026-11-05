@@ -39,9 +39,40 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function createDocument() {
   const styleTags = [];
+  const bodyChildren = [];
+  const makeNode = (tagName) => {
+    const node = {
+      tagName,
+      dataset: {},
+      attributes: {},
+      textContent: "",
+      children: [],
+      parent: null,
+      style: { cssText: "" },
+      setAttribute(name, value) {
+        node.attributes[name] = String(value);
+      },
+      getAttribute(name) {
+        return node.attributes[name] ?? null;
+      },
+      appendChild(child) {
+        node.children.push(child);
+        child.parent = node;
+        return child;
+      },
+      remove() {
+        const list = node.parent === null ? styleTags : node.parent.children;
+        const index = list.indexOf(node);
+        if (index >= 0) list.splice(index, 1);
+        node.parent = null;
+      },
+    };
+    return node;
+  };
   const head = {
     children: styleTags,
     appendChild(node) {
+      node.parent = head;
       styleTags.push(node);
       return node;
     },
@@ -49,6 +80,12 @@ function createDocument() {
   const attributes = new Map();
   const bodyStyle = new Map();
   const body = {
+    children: bodyChildren,
+    appendChild(node) {
+      node.parent = body;
+      bodyChildren.push(node);
+      return node;
+    },
     setAttribute: (name, value) => attributes.set(name, value),
     removeAttribute: (name) => attributes.delete(name),
     hasAttribute: (name) => attributes.has(name),
@@ -71,20 +108,11 @@ function createDocument() {
       head,
       body,
       documentElement,
-      createElement(tagName) {
-        const node = {
-          tagName,
-          dataset: {},
-          textContent: "",
-          remove() {
-            const index = styleTags.indexOf(node);
-            if (index >= 0) styleTags.splice(index, 1);
-          },
-        };
-        return node;
-      },
+      createElement: makeNode,
+      createElementNS: (_namespace, tagName) => makeNode(tagName),
     },
     styleTags,
+    bodyChildren,
     attributes,
     bodyStyle,
     rootStyle,
@@ -149,7 +177,16 @@ function clamp(value, min, max, fallback) {
 /** Stand-in for the Host half's `/dsh-wallpaper/*` routes. */
 function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, patchDelay = 0 } = {}) {
   const state = {
-    config: { mode: "official", customId: null, panelOpacity: 52, blur: 0, fontId: "system", fontScale: 100, ...config },
+    config: {
+      mode: "official",
+      customId: null,
+      panelOpacity: 52,
+      blur: 0,
+      fontId: "system",
+      fontScale: 100,
+      brandStyle: "off",
+      ...config,
+    },
     images: [...images],
   };
   const calls = [];
@@ -174,6 +211,9 @@ function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, 
       blur: clamp(source.blur, 0, 24, 0),
       fontId: typeof source.fontId === "string" && /^[a-z0-9-]{1,32}$/.test(source.fontId) ? source.fontId : "system",
       fontScale: clamp(source.fontScale, 90, 110, 100),
+      brandStyle: ["off", "glass", "gradient", "glass-gradient"].includes(source.brandStyle)
+        ? source.brandStyle
+        : "off",
     };
   };
 
@@ -605,7 +645,7 @@ test("the page renders localized copy, the upload input and every slider", async
   const app = await boot();
   const tree = app.render();
   const text = allText(tree);
-  for (const expected of ["壁纸", "背景", "官方", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "浮层不透明度", "背景模糊", "恢复默认"]) {
+  for (const expected of ["壁纸", "背景", "官方", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "浮层不透明度", "背景模糊", "品牌标识", "玻璃胶囊", "渐变字标", "恢复默认"]) {
     assert.ok(text.includes(expected), `page copy includes ${expected}`);
   }
   const fileInputs = findAll(tree, (element) => element.type === "input" && element.props.type === "file");
@@ -930,5 +970,90 @@ test("rejects an image with absurd pixel dimensions", async () => {
   const posts = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/library" && call.method === "POST");
   assert.equal(posts.length, 0, "the huge image never reaches the Host");
   assert.match(allText(app.render()), /4000 万像素/);
+  app.dispose();
+});
+
+// --------------------------------------------------------------- brand mark
+
+const BRAND_CSS = "dsh-wallpaper/brand.css";
+const BRAND_DEFS = "dsh-wallpaper/brand-defs";
+const brandSheet = (app) => app.dom.styleTags.find((tag) => tag.dataset.pluginCss === BRAND_CSS);
+const brandDefsOf = (app) => app.dom.bodyChildren.find((node) => node.dataset.pluginCss === BRAND_DEFS);
+const brandCard = (app, label) =>
+  findAll(
+    app.render(),
+    (element) => element.type === "button" && element.props.className === "dwp-brandCard" && allText(element).includes(label),
+  )[0];
+
+test("the brand mark stays official until a style is chosen", async () => {
+  const app = await boot();
+  const sheet = brandSheet(app);
+  assert.ok(sheet, "the brand stylesheet tag exists up front");
+  assert.equal(sheet.textContent, "", "off means no rules at all");
+  assert.equal(brandDefsOf(app), undefined, "off injects no gradients");
+  app.dispose();
+});
+
+test("the glass+gradient style restyles both slots and ships its gradients", async () => {
+  const app = await boot({ config: { brandStyle: "glass-gradient" } });
+  const css = brandSheet(app).textContent;
+  assert.match(css, /\[data-slot="sidebar\.brand\.name"\] svg path\[fill="currentColor"\]/, "wordmark paths take the gradient");
+  assert.match(css, /\[data-slot="sidebar\.brand\.mark"\] svg path/, "the whale takes the gradient");
+  assert.match(css, /button:has\(\[data-slot="sidebar\.brand\.name"\]\)/, "the wide brand row gets the capsule");
+  assert.match(css, /border-radius:11px/);
+  assert.match(css, /rgba\(122, 162, 255/, "the HARNESS badge is restyled for dark");
+  const defs = brandDefsOf(app);
+  assert.ok(defs, "a hidden gradient defs node is mounted");
+  assert.deepEqual(
+    defs.children[0].children.map((node) => node.attributes.id),
+    ["dwp-brand-name-light", "dwp-brand-name-dark", "dwp-brand-mark-light", "dwp-brand-mark-dark"],
+  );
+  app.dispose();
+});
+
+test("brand styles are exclusive, switch live and clean up when switched off", async () => {
+  const app = await boot({ config: { brandStyle: "glass" } });
+  assert.match(brandSheet(app).textContent, /button:has/, "glass adds the capsule");
+  assert.match(brandSheet(app).textContent, /rect\{fill:#4d6bfe\}/);
+  assert.doesNotMatch(brandSheet(app).textContent, /fill:url\(#dwp-brand-name-light\)/, "glass keeps the official lettering colour");
+
+  brandCard(app, "渐变字标").props.onClick();
+  await app.settle();
+  assert.match(brandSheet(app).textContent, /fill:url\(#dwp-brand-name-light\)/, "gradient styles the lettering");
+  assert.doesNotMatch(brandSheet(app).textContent, /button:has/, "gradient alone adds no capsule");
+
+  brandCard(app, "跟随官方").props.onClick();
+  await app.settle();
+  assert.equal(brandSheet(app).textContent, "");
+  assert.equal(brandDefsOf(app), undefined, "the gradient defs are removed");
+  await delay(300);
+  assert.equal(
+    JSON.parse(String(app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config").at(-1).init.body)).brandStyle,
+    "off",
+  );
+  app.dispose();
+  assert.equal(app.dom.styleTags.some((tag) => tag.dataset.pluginCss === BRAND_CSS), false, "dispose removes the brand sheet");
+  assert.equal(app.dom.bodyChildren.some((node) => node.dataset.pluginCss === BRAND_DEFS), false);
+});
+
+test("the brand restyle survives reduce-transparency", async () => {
+  const app = await boot({ reducedTransparency: true, config: { brandStyle: "gradient" } });
+  assert.match(brandSheet(app).textContent, /fill:url\(#dwp-brand-name-light\)/);
+  assert.equal(app.dom.attributes.get("data-dsh-wallpaper"), undefined, "the wallpaper itself stays paused");
+  app.dispose();
+});
+
+test("settings page offers the four brand styles", async () => {
+  const app = await boot();
+  const cards = findAll(app.render(), (element) => element.type === "button" && element.props.className === "dwp-brandCard");
+  assert.equal(cards.length, 4);
+  assert.deepEqual(
+    cards.map((card) => card.props["aria-pressed"]),
+    ["true", "false", "false", "false"],
+  );
+  brandCard(app, "玻璃胶囊").props.onClick();
+  await app.settle();
+  const pressed = findAll(app.render(), (element) => element.type === "button" && element.props["aria-pressed"] === "true");
+  assert.equal(pressed.length, 1);
   app.dispose();
 });

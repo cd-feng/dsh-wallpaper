@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置「官方」（复刻 [deepseek.com](https://www.deepseek.com/) 首页的云海底纹 + 细网格，默认）与「极光」两套，也能上传自己的图片；另带三款打包的 OFL 正文字体（霞鹜文楷 / 思源宋体 / 思源黑体）与 90–110% 字号缩放，可调面板通透度与背景模糊。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置「官方」（复刻 [deepseek.com](https://www.deepseek.com/) 首页的云海底纹 + 细网格，默认）与「极光」两套，也能上传自己的图片；另带三款打包的 OFL 正文字体（霞鹜文楷 / 思源宋体 / 思源黑体）与 90–110% 字号缩放，可调面板通透度与背景模糊；左侧顶部「deepseek · HARNESS」品牌标也有四套可切换的样式。
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -15,6 +15,7 @@
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
 - **面板透出壁纸（0.7）**：输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」等交付卡片也跟随「面板不透明度」半透明；输入框另加背景模糊，浮在滚动正文上方也不会被文字穿透。
 - **浮层不透明度可单独调（0.8）**：上面这几类浮层默认跟面板联动（面板 +6%），在「显示」里拖动「浮层不透明度」即可单独定值，点「跟随面板」回到联动。
+- **品牌标识可美化（0.9）**：左侧顶部「deepseek · HARNESS」可切成「跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变」四套——只在 CSS 层重绘配色、底纹与 HARNESS 徽章，官方字标和鲸鱼原样保留；亮暗各一套配色，点卡片即时生效。
 - **上传自己的图**：PNG / JPEG / WebP / GIF / AVIF，≤20 MB，多选，两段式删除。
 - **重启不丢**：Desktop 版是 `--port 0`，每次启动浏览器 origin 都变，所以图片与选择存在 **Host 侧**（`<DSH_HOME>/dsh-wallpaper-desktop/`），不用 localStorage / IndexedDB。
 - **可换字体（0.6）**：随包带霞鹜文楷 / 思源宋体 / 思源黑体（各一个字重，GB2312 子集，共约 3.7 MB，OFL 许可，许可证随包分发）；在「壁纸 → 字体」里点卡片即时切换，代码块/终端保持等宽字体；生僻字回退系统字体。字体走 Host 的 `/dsh-wallpaper/fonts/*` 只读路由（immutable 缓存 + sha256 ETag），不塞进 JS bundle。
@@ -65,6 +66,7 @@ target: dsh-wallpaper
 - **我的图片**：上传、点卡片设为壁纸、两段式删除
 - **字体**：系统字体 / 霞鹜文楷 / 思源宋体 / 思源黑体 四张预览卡 + 字号缩放（90–110%）
 - **显示**：面板不透明度（20–100%，同时作用于输入框、气泡、代码块与交付卡片）、浮层不透明度（20–100%，默认跟随面板 +6%，可单独覆盖）、背景模糊（0–24px）
+- **品牌标识**：跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变 四张卡片，点选即时生效
 - **恢复默认**
 
 滑杆改动 debounce 220ms 后回写 Host，本地即时生效。
@@ -73,7 +75,7 @@ target: dsh-wallpaper
 
 | 数据 | 位置 | 说明 |
 |---|---|---|
-| 选择 + 滑杆值 + 字体 | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` | Host 是唯一权威，浏览器只在内存里留快照；含 `fontId` / `fontScale` |
+| 选择 + 滑杆值 + 字体 + 品牌样式 | `<DSH_HOME>/dsh-wallpaper[-desktop]/config.json` | Host 是唯一权威，浏览器只在内存里留快照；含 `fontId` / `fontScale` / `brandStyle` |
 | 上传的图片 | `<DSH_HOME>/dsh-wallpaper[-desktop]/images/<id>.<ext>` | 原样保存，不压缩、不转码、不上传服务器 |
 | 图片索引 | `<DSH_HOME>/dsh-wallpaper[-desktop]/library.json` | sha256（做 ETag）、尺寸、原始文件名、时间 |
 | 内置壁纸 | 打进 `lib/client.js` 的 data URI | 四张 webp（官方/极光 × 亮/暗），共约 58 KB |
@@ -88,7 +90,7 @@ target: dsh-wallpaper
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET | `/dsh-wallpaper/state` | `{ config, images, fonts }`，客户端启动时拉一次（`fonts` 来自 manifest） |
-| PATCH | `/dsh-wallpaper/config` | 局部更新 `{ mode, customId, panelOpacity, blur, fontId, fontScale }`，返回 state |
+| PATCH | `/dsh-wallpaper/config` | 局部更新 `{ mode, customId, panelOpacity, surfaceOpacity, blur, fontId, fontScale, brandStyle }`，返回 state |
 | POST | `/dsh-wallpaper/library` | body 为图片原始字节；`content-type` 声明类型、`x-filename` 为 `encodeURIComponent(文件名)`；按 magic bytes 校验；成功后自动选中 |
 | DELETE | `/dsh-wallpaper/library/<id>` | 删图；删到当前壁纸时选择回退到内置 |
 | GET | `/dsh-wallpaper/assets/<id>` | 图片字节，`immutable` 缓存 + sha256 ETag |
@@ -97,7 +99,7 @@ target: dsh-wallpaper
 ## 开发
 
 ```sh
-npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 46 条行为测试
+npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 54 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI + 字体 manifest）
 npm run fonts        # 重新生成打包字体（仅换字体源时需要；需 fonttools + brotli + 网络）
@@ -146,6 +148,7 @@ dsh-wallpaper/
 | 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 在 `ctx.effect` 里注入一次，不进每次渲染 |
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
 | 侧栏通透 | 除了 `[class*="_sidebarCol"]`，还覆盖官方令牌 `--dsw-specific-sidebar-fill`（Windows 标题栏也读它）；透明通道由 `--dwp-sidebar-*` 驱动 |
+| 品牌标怎么美化 | 官方字标由 `dsh-client-ui-brand-official` 注册进 `sidebar.brand.mark` / `sidebar.brand.name` 两个 single slot；插件不去抢注册，只在 CSS 里用 `[data-slot="sidebar.brand.*"]` 选中，把字标路径与鲸鱼的 `fill`（SVG 表现属性，CSS 能盖过它）换成 `url(#dwp-brand-*)` 渐变，渐变由隐藏的 `<defs>` 节点提供、亮暗两套坐标各自对齐；HARNESS 徽章是 SVG `rect` + 反白 path，分别改底色/描边与字色；玻璃胶囊用 `button:has([data-slot="sidebar.brand.name"])` 包住整行 |
 | 输入框 / 气泡 / 代码块 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；`--dwp-surface-alpha` = 面板 alpha +0.06，除非 `surfaceOpacity` 显式覆盖；输入框再加 `backdrop-filter:blur(28px)`，避免滚动正文透出来 |
 | 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
 | 字体怎么上屏 | Harness 的排版 token 全部经过 `--dsw-font-family → var(--dsh-font-family-text, …)`；插件在 `<html>` 上设 `--dsh-font-family-text` 并注入 `@font-face`，不重发布主题、不动品牌字体。代码字体（`--dsh-font-family-code`）保持系统等宽 |
@@ -173,6 +176,7 @@ dsh-wallpaper/
 
 - 侧栏选择器 `[class*="_sidebarCol"]` 依赖上游布局的 css-modules 局部名；上游大改版时需复核，失效只会退回官方底色，不破坏布局。
 - 交付卡片（「已编辑 N 个文件」）的透明规则依赖上游 `vdszpW_*` / `IBlBFq_*` 局部名；上游升级改名会退回实色卡片，不影响功能。与侧栏 `_sidebarCol` 同类风险。
+- 品牌标美化依赖两个 slot id（`sidebar.brand.mark` / `sidebar.brand.name`）与官方 SVG 的内部约定（字标/鲸鱼用 `fill="currentColor"`、HARNESS 是 `rect` 底 + 反白 `path`）；上游重绘字标或改 slot 命名后会静默退回官方原样，不影响功能。玻璃胶囊用的 `button:has()` 需要 Chromium 105+，DSH Desktop 自带版本远高于此。
 - 图片原样保存不压缩，接近 20 MB 的图会占磁盘；显示层用 `background-size:cover` 缩放。
 - 上传是整文件 POST，没有进度条（本地回环很快）；失败在页面行内报错。
 - 同一时刻只有一张「当前壁纸」：自定义图库可以有多张，但明暗共用一个图。
@@ -183,7 +187,7 @@ dsh-wallpaper/
 - 字体子集只覆盖 GB2312（6763 汉字）+ 拉丁/标点/全角；生僻字回退系统字体，混排时字形会有差异。只打包 400 字重，`font-weight:500/600` 由浏览器合成加粗，观感略逊于真粗体。
 - 若曾在 Harness 原生「外观 → 字体」里设置了正文字体，那边的 `<body>` 内联值优先级更高，会盖住插件的选择；把原生设置清空即可。
 - 字号缩放作用于 Harness 的排版 token 与正文/代码/终端字号；图标、间距不缩放（是「字号缩放」而不是界面缩放）。
-- 行为测试覆盖 46 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
+- 行为测试覆盖 54 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
 
 ## 数据完整性
 
