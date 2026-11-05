@@ -558,6 +558,18 @@ test("the composer, bubbles and deliverable cards inherit the panel opacity", as
   assert.equal(app.dom.rootStyle.has("--dwp-surface-mix"), false);
 });
 
+test("the input trigger menu stays opaque above the transcript", async () => {
+  const app = await boot({ config: { panelOpacity: 20, surfaceOpacity: 20 } });
+  const sheet = sheetOf(app).textContent;
+  assert.match(
+    sheet,
+    /body\[data-dsh-wallpaper\] \[data-composer-card\] \[data-trigger-menu\]\{background:var\(--dsw-alias-bg-layer-1\)\}/,
+  );
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.2");
+  app.dispose();
+  assert.equal(app.dom.styleTags.length, 0, "the menu rule is removed with the wallpaper");
+});
+
 test("overlay opacity follows the panel until it is set on its own", async () => {
   const app = await boot();
   const ranges = () => findAll(app.render(), (element) => element.type === "input" && element.props.type === "range");
