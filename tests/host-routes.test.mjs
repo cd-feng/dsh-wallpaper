@@ -182,6 +182,7 @@ test("starts with defaults and creates the data files", async () => {
     mode: "official",
     customId: null,
     panelOpacity: 52,
+    surfaceOpacity: null,
     blur: 0,
     fontId: "system",
     fontScale: 100,
@@ -335,6 +336,35 @@ test("patches the preference, clamps it and survives a restart", async () => {
   const restarted = setup({ home: app.root });
   const snapshot = await state(restarted);
   assert.equal(snapshot.json().config.panelOpacity, 100);
+  restarted.dispose();
+  app.dispose();
+});
+
+test("overlay opacity persists as follow-panel or a clamped percentage", async () => {
+  const app = setup();
+  const patch = (body) =>
+    call(app.routes, "PATCH", "/dsh-wallpaper/config", { body: Buffer.from(JSON.stringify(body)) });
+
+  const follow = await patch({ surfaceOpacity: null });
+  assert.equal(follow.status, 200);
+  assert.equal(follow.json().config.surfaceOpacity, null);
+
+  const explicit = await patch({ surfaceOpacity: 72 });
+  assert.equal(explicit.json().config.surfaceOpacity, 72);
+  assert.equal(JSON.parse(readFileSync(join(app.dataDir, "config.json"), "utf8")).surfaceOpacity, 72);
+
+  // Out of range clamps; unparsable values fall back to following the panel.
+  assert.equal((await patch({ surfaceOpacity: 1000 })).json().config.surfaceOpacity, 100);
+  assert.equal((await patch({ surfaceOpacity: 5 })).json().config.surfaceOpacity, 20);
+  assert.equal((await patch({ surfaceOpacity: "abc" })).json().config.surfaceOpacity, null);
+  assert.equal((await patch({ surfaceOpacity: 72 })).json().config.surfaceOpacity, 72);
+
+  // A config file written before 0.8 keeps working and follows the panel.
+  writeFileSync(join(app.dataDir, "config.json"), `${JSON.stringify({ mode: "official", customId: null, panelOpacity: 52, blur: 0 })}\n`);
+  const restarted = setup({ home: app.root });
+  const snapshot = await state(restarted);
+  assert.equal(snapshot.json().config.surfaceOpacity, null);
+  assert.equal(snapshot.json().config.panelOpacity, 52);
   restarted.dispose();
   app.dispose();
 });

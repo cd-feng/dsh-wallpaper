@@ -167,6 +167,10 @@ function createHost({ config = {}, images = [], fail = false, uploadStatus = 0, 
       mode,
       customId,
       panelOpacity: clamp(source.panelOpacity, 20, 100, 52),
+      surfaceOpacity:
+        source.surfaceOpacity === null || source.surfaceOpacity === undefined || source.surfaceOpacity === ""
+          ? null
+          : clamp(source.surfaceOpacity, 20, 100, 58),
       blur: clamp(source.blur, 0, 24, 0),
       fontId: typeof source.fontId === "string" && /^[a-z0-9-]{1,32}$/.test(source.fontId) ? source.fontId : "system",
       fontScale: clamp(source.fontScale, 90, 110, 100),
@@ -514,6 +518,49 @@ test("the composer, bubbles and deliverable cards inherit the panel opacity", as
   assert.equal(app.dom.rootStyle.has("--dwp-surface-mix"), false);
 });
 
+test("overlay opacity follows the panel until it is set on its own", async () => {
+  const app = await boot();
+  const ranges = () => findAll(app.render(), (element) => element.type === "input" && element.props.type === "range");
+  const surface = () => ranges()[2];
+
+  // Default: no explicit value, so the overlay tracks the panel (+6) and the
+  // row's slider shows the effective percentage.
+  assert.equal(surface().props.value, 58, "panel 52 -> overlay 58");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.58");
+
+  ranges()[1].props.onChange({ currentTarget: { value: "30" } });
+  await app.settle();
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.3");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.36", "the overlay still follows the panel");
+  assert.equal(surface().props.value, 36);
+
+  surface().props.onChange({ currentTarget: { value: "72" } });
+  await app.settle();
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.3", "the panel slider is untouched");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.72");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-mix"), "72%");
+
+  ranges()[1].props.onChange({ currentTarget: { value: "60" } });
+  await app.settle();
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.72", "an explicit overlay no longer follows the panel");
+
+  await delay(300);
+  const patches = app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config" && call.method === "PATCH");
+  assert.equal(JSON.parse(String(patches.at(-1).init.body)).surfaceOpacity, 72);
+  assert.equal(app.host.state.config.surfaceOpacity, 72);
+
+  // The row's reset button drops the override and re-links the two sliders.
+  const follow = findAll(app.render(), (element) => element.type === "button" && allText(element).includes("跟随面板"))[0];
+  assert.ok(follow, "the follow-panel button appears once overridden");
+  follow.props.onClick();
+  await app.settle();
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.66", "panel 60 + 6 again");
+  assert.equal(surface().props.value, 66);
+  await delay(300);
+  assert.equal(JSON.parse(String(app.host.calls.filter((call) => call.path === "/dsh-wallpaper/config").at(-1).init.body)).surfaceOpacity, null);
+  app.dispose();
+});
+
 test("a Host-selected custom image becomes the wallpaper", async () => {
   const app = await boot({
     config: { mode: "custom", customId: IMAGE_ID, panelOpacity: 64 },
@@ -554,11 +601,11 @@ test("registers a settings section at order 5 with a localized label", async () 
   app.dispose();
 });
 
-test("the page renders localized copy, the upload input and both sliders", async () => {
+test("the page renders localized copy, the upload input and every slider", async () => {
   const app = await boot();
   const tree = app.render();
   const text = allText(tree);
-  for (const expected of ["壁纸", "背景", "官方", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "背景模糊", "恢复默认"]) {
+  for (const expected of ["壁纸", "背景", "官方", "极光", "我的图片", "上传图片", "显示", "面板不透明度", "浮层不透明度", "背景模糊", "恢复默认"]) {
     assert.ok(text.includes(expected), `page copy includes ${expected}`);
   }
   const fileInputs = findAll(tree, (element) => element.type === "input" && element.props.type === "file");
@@ -566,8 +613,8 @@ test("the page renders localized copy, the upload input and both sliders", async
   assert.match(fileInputs[0].props.accept, /image\/png/);
   assert.match(fileInputs[0].props.accept, /image\/jpeg/);
   const ranges = findAll(tree, (element) => element.type === "input" && element.props.type === "range");
-  assert.deepEqual(ranges.map((range) => range.props.min), [90, 20, 0]);
-  assert.deepEqual(ranges.map((range) => range.props.max), [110, 100, 24]);
+  assert.deepEqual(ranges.map((range) => range.props.min), [90, 20, 20, 0]);
+  assert.deepEqual(ranges.map((range) => range.props.max), [110, 100, 100, 24]);
   assert.deepEqual(cardNames(tree), ["官方", "极光"]);
   app.dispose();
 });

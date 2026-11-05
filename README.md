@@ -14,6 +14,7 @@
 - **跟随明暗**：每套内置壁纸都有亮色、深色两张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
 - **面板透出壁纸（0.7）**：输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」等交付卡片也跟随「面板不透明度」半透明；输入框另加背景模糊，浮在滚动正文上方也不会被文字穿透。
+- **浮层不透明度可单独调（0.8）**：上面这几类浮层默认跟面板联动（面板 +6%），在「显示」里拖动「浮层不透明度」即可单独定值，点「跟随面板」回到联动。
 - **上传自己的图**：PNG / JPEG / WebP / GIF / AVIF，≤20 MB，多选，两段式删除。
 - **重启不丢**：Desktop 版是 `--port 0`，每次启动浏览器 origin 都变，所以图片与选择存在 **Host 侧**（`<DSH_HOME>/dsh-wallpaper-desktop/`），不用 localStorage / IndexedDB。
 - **可换字体（0.6）**：随包带霞鹜文楷 / 思源宋体 / 思源黑体（各一个字重，GB2312 子集，共约 3.7 MB，OFL 许可，许可证随包分发）；在「壁纸 → 字体」里点卡片即时切换，代码块/终端保持等宽字体；生僻字回退系统字体。字体走 Host 的 `/dsh-wallpaper/fonts/*` 只读路由（immutable 缓存 + sha256 ETag），不塞进 JS bundle。
@@ -63,7 +64,7 @@ target: dsh-wallpaper
 - **背景**：官方（默认，deepseek.com 首页云海 + 细网格）/ 极光（随明暗切换）
 - **我的图片**：上传、点卡片设为壁纸、两段式删除
 - **字体**：系统字体 / 霞鹜文楷 / 思源宋体 / 思源黑体 四张预览卡 + 字号缩放（90–110%）
-- **显示**：面板不透明度（20–100%，同时作用于输入框、气泡与交付卡片）、背景模糊（0–24px）
+- **显示**：面板不透明度（20–100%，同时作用于输入框、气泡、代码块与交付卡片）、浮层不透明度（20–100%，默认跟随面板 +6%，可单独覆盖）、背景模糊（0–24px）
 - **恢复默认**
 
 滑杆改动 debounce 220ms 后回写 Host，本地即时生效。
@@ -145,7 +146,7 @@ dsh-wallpaper/
 | 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 在 `ctx.effect` 里注入一次，不进每次渲染 |
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
 | 侧栏通透 | 除了 `[class*="_sidebarCol"]`，还覆盖官方令牌 `--dsw-specific-sidebar-fill`（Windows 标题栏也读它）；透明通道由 `--dwp-sidebar-*` 驱动 |
-| 输入框 / 气泡 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；输入框再加 `backdrop-filter:blur(28px)`，避免滚动正文透出来 |
+| 输入框 / 气泡 / 代码块 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；`--dwp-surface-alpha` = 面板 alpha +0.06，除非 `surfaceOpacity` 显式覆盖；输入框再加 `backdrop-filter:blur(28px)`，避免滚动正文透出来 |
 | 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
 | 字体怎么上屏 | Harness 的排版 token 全部经过 `--dsw-font-family → var(--dsh-font-family-text, …)`；插件在 `<html>` 上设 `--dsh-font-family-text` 并注入 `@font-face`，不重发布主题、不动品牌字体。代码字体（`--dsh-font-family-code`）保持系统等宽 |
 | 字号缩放不重排主题 | 从 Harness 基础样式提取 51 个可缩放排版 token（`--dsw-font-*`），按比例重写 px；这些 token 与正文/代码/终端字号都写在 `<body>` 内联变量上（Harness 把它们声明在 body，主题 presenter 也写 body，故监听 `theme/change` 在下一帧覆盖）。只改自定义属性，不 bump theme revision |

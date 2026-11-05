@@ -15,6 +15,7 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 - **Light/dark aware** — both built-in wallpapers have light and dark variants that follow the app theme. Uploaded images are used for both.
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
 - **Translucent chrome (0.7)** — the composer, user bubbles, markdown code blocks and the *Edited N files* deliverable cards follow *panel opacity* instead of staying solid; the composer also frosts its backdrop so message text cannot bleed through.
+- **Overlay opacity on its own (0.8)** — those overlays track the panel slider (panel +6 %) by default; drag *Overlay opacity* in *Display* to pin a separate value, or use *Follow panel* to restore the link.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
 - **Bundled fonts (0.6)** — LXGW WenKai, Noto Serif SC and Noto Sans SC, one weight each, subset to GB2312 (~3.7 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
@@ -47,7 +48,7 @@ Uninstall with `plugin_manager` `remove_bundle` (`target: dsh-wallpaper`); the i
 
 - **Background** — Official (default, the deepseek.com clouds + grid) / Aurora
 - **My images** — upload, click a card to apply, two-step delete
-- **Display** — panel opacity (20–100 %, also applied to the composer, bubbles and deliverable cards), background blur (0–24 px)
+- **Display** — panel opacity (20–100 %, also applied to the composer, bubbles, code blocks and deliverable cards), overlay opacity (20–100 %, follows the panel (+6 %) unless overridden), background blur (0–24 px)
 - **Reset to defaults**
 
 ## Data

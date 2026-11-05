@@ -47,6 +47,8 @@ window.__ModuleLoader__.load({
       mode: "official",
       customId: null,
       panelOpacity: 52,
+      // null = follow the panel opacity; a number = explicit overlay alpha.
+      surfaceOpacity: null,
       blur: 0,
       fontId: "system",
       fontScale: 100,
@@ -102,6 +104,10 @@ window.__ModuleLoader__.load({
       reasonSize: "超过 20 MB",
       reasonPixels: "像素太大（超过 4000 万像素）",
       opacity: "面板不透明度",
+      surfaceOpacity: "浮层不透明度",
+      surfaceFollow: "跟随面板不透明度",
+      surfaceIntro: "输入框、气泡、代码块与交付卡片：默认跟随面板不透明度（+6%），拖动这里可单独调整，点「跟随面板」恢复联动。",
+      followPanel: "跟随面板",
       blur: "背景模糊",
       sliderValue: "{value}%",
       blurValue: "{value}px",
@@ -150,6 +156,10 @@ window.__ModuleLoader__.load({
       reasonSize: "larger than 20 MB",
       reasonPixels: "larger than 40 megapixels",
       opacity: "Panel opacity",
+      surfaceOpacity: "Overlay opacity",
+      surfaceFollow: "follows panel opacity",
+      surfaceIntro: "Composer, bubbles, code blocks and deliverable cards: they follow panel opacity (+6%) by default; drag here to set them separately, or use “Follow panel” to restore the link.",
+      followPanel: "Follow panel",
       blur: "Background blur",
       sliderValue: "{value}%",
       blurValue: "{value}px",
@@ -179,6 +189,18 @@ window.__ModuleLoader__.load({
       const number = Number(value);
       if (!Number.isFinite(number)) return fallback;
       return Math.min(max, Math.max(min, Math.round(number)));
+    }
+
+    /**
+     * `null` keeps the overlay tied to the panel slider; a finite number is the
+     * explicit percentage the user picked. Anything else follows the panel.
+     */
+    function normalizeSurfaceOpacity(value) {
+      if (value === null || value === undefined || value === "") return null;
+      if (typeof value === "string" && value.trim() === "") return null;
+      const number = Number(value);
+      if (!Number.isFinite(number)) return null;
+      return Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, Math.round(number)));
     }
 
     function roundTo(value, digits) {
@@ -246,6 +268,7 @@ window.__ModuleLoader__.load({
         mode,
         customId,
         panelOpacity: clamp(source.panelOpacity, OPACITY_MIN, OPACITY_MAX, DEFAULTS.panelOpacity),
+        surfaceOpacity: normalizeSurfaceOpacity(source.surfaceOpacity),
         blur: clamp(source.blur, BLUR_MIN, BLUR_MAX, DEFAULTS.blur),
         fontId: normalizeFontId(source.fontId),
         fontScale: clamp(source.fontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, DEFAULTS.fontScale),
@@ -257,6 +280,7 @@ window.__ModuleLoader__.load({
         a.mode === b.mode &&
         a.customId === b.customId &&
         a.panelOpacity === b.panelOpacity &&
+        a.surfaceOpacity === b.surfaceOpacity &&
         a.blur === b.blur &&
         a.fontId === b.fontId &&
         a.fontScale === b.fontScale
@@ -667,6 +691,7 @@ window.__ModuleLoader__.load({
       ".dwp-btn:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}",
       ".dwp-btn:disabled{opacity:.45;cursor:not-allowed}",
       ".dwp-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}",
+      ".dwp-btnSmall{padding:2px 8px;font-size:11px;border-radius:6px}",
       ".dwp-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:20px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px}",
       ".dwp-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-word}",
       ".dwp-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 0}",
@@ -674,6 +699,7 @@ window.__ModuleLoader__.load({
       ".dwp-rowTitle{font-size:13px}",
       ".dwp-range{flex:0 1 200px;min-width:120px;accent-color:var(--dsw-alias-brand-primary)}",
       ".dwp-rowValue{flex:0 0 46px;text-align:end;font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}",
+      ".dwp-rowNote{font-size:10px;color:var(--dsw-alias-label-secondary)}",
       ".dwp-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap}",
       ".dwp-fontCard{display:flex;flex-direction:column;gap:7px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;text-align:start;cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease}",
       ".dwp-fontCard:hover{border-color:var(--dsw-alias-border-l2)}",
@@ -940,6 +966,47 @@ window.__ModuleLoader__.load({
             h("span", { className: "dwp-rowValue" }, format(value)),
           );
 
+        /**
+         * Overlay opacity: follows the panel slider until the user drags it,
+         * then keeps its own value. A plain `div` instead of the shared
+         * `slider()` label, because the reset button must not be part of it.
+         */
+        const surfaceSlider = () => {
+          const following = state.surfaceOpacity === null;
+          const effective = following
+            ? Math.min(OPACITY_MAX, Math.round(state.panelOpacity + 6))
+            : state.surfaceOpacity;
+          return h(
+            "div",
+            { key: "surfaceOpacity", className: "dwp-row" },
+            h(
+              "span",
+              { className: "dwp-rowLabel" },
+              h("span", { className: "dwp-rowTitle" }, t("surfaceOpacity")),
+              following ? h("span", { className: "dwp-rowNote" }, t("surfaceFollow")) : null,
+            ),
+            h("input", {
+              type: "range",
+              className: "dwp-range",
+              min: OPACITY_MIN,
+              max: OPACITY_MAX,
+              step: 1,
+              value: effective,
+              "aria-label": t("surfaceOpacity"),
+              onChange: (event) =>
+                store.set({ surfaceOpacity: clamp(event.currentTarget.value, OPACITY_MIN, OPACITY_MAX, 58) }),
+            }),
+            h("span", { className: "dwp-rowValue" }, t("sliderValue", { value: effective })),
+            following
+              ? null
+              : h(
+                  "button",
+                  { type: "button", className: "dwp-btn dwp-btnSmall", onClick: () => store.set({ surfaceOpacity: null }) },
+                  t("followPanel"),
+                ),
+          );
+        };
+
         return h(
           "div",
           { className: "dwp-root" },
@@ -1022,6 +1089,8 @@ window.__ModuleLoader__.load({
             slider("panelOpacity", t("opacity"), OPACITY_MIN, OPACITY_MAX, state.panelOpacity, (value) =>
               t("sliderValue", { value }),
             ),
+            surfaceSlider(),
+            h("p", { className: "dwp-hint" }, t("surfaceIntro")),
             slider("blur", t("blur"), BLUR_MIN, BLUR_MAX, state.blur, (value) => t("blurValue", { value })),
           ),
           h(
@@ -1260,9 +1329,11 @@ window.__ModuleLoader__.load({
         setProperty("--dwp-panel-alpha-dark", String(Math.min(1, roundTo(alpha + 0.06, 3))));
         setProperty("--dwp-sidebar-light", String(Math.min(1, roundTo(alpha + 0.16, 3))));
         setProperty("--dwp-sidebar-dark", String(Math.min(1, roundTo(alpha + 0.22, 3))));
-        // Composer / bubbles / deliverable cards: a touch more opaque than the
-        // columns so text keeps contrast, still tied to the same slider.
-        const surfaceAlpha = Math.min(1, roundTo(alpha + 0.06, 3));
+        // Composer / bubbles / code blocks / deliverable cards: a touch more
+        // opaque than the columns so text keeps contrast, still tied to the
+        // same slider by default; the settings page can override it.
+        const surfaceAlpha =
+          state.surfaceOpacity === null ? Math.min(1, roundTo(alpha + 0.06, 3)) : roundTo(state.surfaceOpacity / 100, 3);
         setProperty("--dwp-surface-alpha", String(surfaceAlpha));
         setProperty("--dwp-surface-mix", `${Math.round(surfaceAlpha * 100)}%`);
         if (state.blur > 0) {
