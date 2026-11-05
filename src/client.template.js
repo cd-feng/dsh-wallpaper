@@ -517,6 +517,28 @@ window.__ModuleLoader__.load({
           light: "rgba(249, 250, 251, var(--dwp-sidebar-light, 0.68))",
           dark: "rgba(27, 27, 28, var(--dwp-sidebar-dark, 0.74))",
         },
+        // The composer card and the user bubbles are "layer" surfaces painted
+        // over the wallpaper; leaving them opaque was the remaining place the
+        // artwork got covered. They follow the same knob as the columns
+        // (`--dwp-surface-alpha`, a plain number like the panel alpha).
+        "--dsw-specific-input-major": {
+          light: "rgba(255, 255, 255, var(--dwp-surface-alpha, 0.58))",
+          dark: "rgba(44, 44, 46, var(--dwp-surface-alpha, 0.58))",
+        },
+        "--dsw-specific-bubble": {
+          light: "rgba(237, 243, 254, var(--dwp-surface-alpha, 0.58))",
+          dark: "rgba(44, 44, 46, var(--dwp-surface-alpha, 0.58))",
+        },
+        // Markdown fenced code blocks (the "bash" cards) are painted from the
+        // markdown code-block tokens: body and banner follow the same knob.
+        "--dsw-alias-markdown-code-block": {
+          light: "rgba(249, 250, 251, var(--dwp-surface-alpha, 0.58))",
+          dark: "rgba(27, 27, 28, var(--dwp-surface-alpha, 0.58))",
+        },
+        "--dsw-alias-markdown-code-block-banner": {
+          light: "rgba(249, 250, 251, var(--dwp-surface-alpha, 0.58))",
+          dark: "rgba(44, 44, 46, var(--dwp-surface-alpha, 0.58))",
+        },
       };
     }
 
@@ -597,6 +619,23 @@ window.__ModuleLoader__.load({
       }
       rules.push(
         `body[${BODY_ATTR}][data-ds-dark-theme] [class*="_sidebarCol"]{background:${sidebarGradientDark},var(--dsw-specific-sidebar-fill)}`,
+      );
+      // The composer floats above the scrolling transcript, so plain alpha would
+      // let message text bleed through it: frost whatever is behind instead. The
+      // tokens above supply the tint; this only softens the backdrop.
+      rules.push(
+        `body[${BODY_ATTR}] [class*="composerStack"] [class*="_card"],body[${BODY_ATTR}] [class*="composerSeat"] [class*="_card"]{-webkit-backdrop-filter:blur(28px) saturate(1.35);backdrop-filter:blur(28px) saturate(1.35)}`,
+      );
+      // Deliverable / file-change cards are elevated surfaces with their own
+      // fills (`--dsw-alias-bg-layer-1`, `--changes-fill`, `--deliverable-fill`);
+      // mix them with transparency so the wallpaper shows through them too.
+      const cardMix = "var(--dwp-surface-mix, 58%)";
+      rules.push(
+        `body[${BODY_ATTR}] [class*="vdszpW_card"]{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) ${cardMix},transparent)}`,
+        `body[${BODY_ATTR}] [class*="vdszpW_card"] [class*="vdszpW_header"]{background:color-mix(in srgb,var(--changes-fill) ${cardMix},transparent)}`,
+        `body[${BODY_ATTR}] [class*="vdszpW_card"] [class*="vdszpW_header"]:hover:not(:disabled),body[${BODY_ATTR}] [class*="vdszpW_card"] button[class*="vdszpW_header"]:focus-visible{background:color-mix(in srgb,var(--changes-hover) ${cardMix},transparent)}`,
+        `body[${BODY_ATTR}] [class*="IBlBFq_file"]{background:color-mix(in srgb,var(--deliverable-fill) ${cardMix},transparent)}`,
+        `body[${BODY_ATTR}] [class*="IBlBFq_file"]:hover{background:color-mix(in srgb,var(--deliverable-hover) ${cardMix},transparent)}`,
       );
       return rules.join("\n");
     }
@@ -1221,6 +1260,11 @@ window.__ModuleLoader__.load({
         setProperty("--dwp-panel-alpha-dark", String(Math.min(1, roundTo(alpha + 0.06, 3))));
         setProperty("--dwp-sidebar-light", String(Math.min(1, roundTo(alpha + 0.16, 3))));
         setProperty("--dwp-sidebar-dark", String(Math.min(1, roundTo(alpha + 0.22, 3))));
+        // Composer / bubbles / deliverable cards: a touch more opaque than the
+        // columns so text keeps contrast, still tied to the same slider.
+        const surfaceAlpha = Math.min(1, roundTo(alpha + 0.06, 3));
+        setProperty("--dwp-surface-alpha", String(surfaceAlpha));
+        setProperty("--dwp-surface-mix", `${Math.round(surfaceAlpha * 100)}%`);
         if (state.blur > 0) {
           setProperty("--dwp-filter", `blur(${state.blur}px)`);
           setProperty("--dwp-transform", `scale(${bleedScale(state.blur)})`);

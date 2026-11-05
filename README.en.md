@@ -14,6 +14,7 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 - **Uses the official theme mechanism** — `ctx.theme.overrideTokens()` turns `--dsw-alias-bg-base` translucent and a fixed `body::before` layer paints the image. Disabling or uninstalling the plugin rolls everything back.
 - **Light/dark aware** — both built-in wallpapers have light and dark variants that follow the app theme. Uploaded images are used for both.
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
+- **Translucent chrome (0.7)** — the composer, user bubbles, markdown code blocks and the *Edited N files* deliverable cards follow *panel opacity* instead of staying solid; the composer also frosts its backdrop so message text cannot bleed through.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
 - **Bundled fonts (0.6)** — LXGW WenKai, Noto Serif SC and Noto Sans SC, one weight each, subset to GB2312 (~3.7 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
@@ -46,7 +47,7 @@ Uninstall with `plugin_manager` `remove_bundle` (`target: dsh-wallpaper`); the i
 
 - **Background** — Official (default, the deepseek.com clouds + grid) / Aurora
 - **My images** — upload, click a card to apply, two-step delete
-- **Display** — panel opacity (20–100 %), background blur (0–24 px)
+- **Display** — panel opacity (20–100 %, also applied to the composer, bubbles and deliverable cards), background blur (0–24 px)
 - **Reset to defaults**
 
 ## Data
@@ -76,7 +77,7 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + verify font payload + syntax check + 45 behaviour tests
+npm run check        # rebuild bundle + verify font payload + syntax check + 46 behaviour tests
 npm test             # tests only
 npm run build        # rebuild lib/client.js (inlines wallpaper data URIs + font manifest)
 npm run fonts        # regenerate the bundled fonts (fonttools + brotli + network; sources pinned)
@@ -92,6 +93,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 
 - **Style rebuilds** — the `body::before` rule carries the inlined WebPs and is rewritten only when the artwork changes. Sliders only move custom properties (`--dwp-panel-alpha`, `--dwp-filter`, `--dwp-transform`, `--dwp-sidebar-*`).
 - **No theme churn while dragging** — `theme.overrideTokens` bumps the theme revision and re-renders every theme consumer, so the token layer is registered once and reads its alpha from `rgba(..., var(--dwp-panel-alpha))`. Dragging a slider emits no `theme/change`.
+- **Frosted composer only** — just the composer card uses `backdrop-filter` (28 px, small area); bubbles and deliverable cards are plain-alpha `color-mix()`, so they allocate no filter surface.
 - **Coalesced repaints** — every state change goes through `requestAnimationFrame`, so a 100+ Hz trackpad drag still paints at most once per frame.
 - **No extra layers by default** — at blur 0 `filter`/`transform` are `none`, so the browser allocates no filter surface and no extra composited layer; a non-zero blur scales by `3×blur / viewport` so the feathered edge stays off-screen.
 - **Thumbnails** — the 168 px cards use 336×210 bakes (≈700 B each for the built-ins) instead of decoding a 13.7 MB original.
@@ -104,6 +106,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 ## Notes and limits
 
 - The sidebar rule `[class*="_sidebarCol"]` depends on upstream css-modules names; if upstream renames it, the sidebar simply falls back to the official colour.
+- The deliverable-card rules depend on upstream `vdszpW_*` / `IBlBFq_*` css-modules names; an upstream rename falls back to the solid card and breaks nothing. Same risk class as `_sidebarCol`.
 - The built-in art is regenerated with `npm run wallpapers` (needs `python3 -m pip install pillow numpy`); the committed WebPs are already generated, so a normal install never runs Python.
 - Images are stored verbatim (no recompression); a 20 MB PNG costs 20 MB on disk.
 - Uploads are whole-file POSTs with no progress bar (loopback is fast); failures surface inline in the page.
@@ -115,7 +118,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - The font subsets cover GB2312 (6763 hanzi) plus Latin/punctuation/full-width forms; rare glyphs fall back to the system font, so mixed lines can differ slightly. Only weight 400 ships — `500/600` is synthesized by the browser.
 - If the native *Appearance → Text font* field is set, its inline `<body>` value wins over the plugin's choice; clear it to let the plugin apply.
 - The text scale targets Harness typography tokens and the conversation/code/terminal sizes; icons and spacing do not scale (this is a font scale, not a UI zoom).
-- The 45 tests cover behaviour, not aesthetics.
+- The 46 tests cover behaviour, not aesthetics.
 
 ## Data integrity
 

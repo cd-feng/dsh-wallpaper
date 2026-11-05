@@ -13,6 +13,7 @@
 - **官方机制上屏**：`ctx.theme.overrideTokens()` 把 `--dsw-alias-bg-base` 换成半透明 rgba，`body::before` 固定层画图；插件禁用/卸载时全部自动回滚，不留脏样式。
 - **跟随明暗**：每套内置壁纸都有亮色、深色两张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
+- **面板透出壁纸（0.7）**：输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」等交付卡片也跟随「面板不透明度」半透明；输入框另加背景模糊，浮在滚动正文上方也不会被文字穿透。
 - **上传自己的图**：PNG / JPEG / WebP / GIF / AVIF，≤20 MB，多选，两段式删除。
 - **重启不丢**：Desktop 版是 `--port 0`，每次启动浏览器 origin 都变，所以图片与选择存在 **Host 侧**（`<DSH_HOME>/dsh-wallpaper-desktop/`），不用 localStorage / IndexedDB。
 - **可换字体（0.6）**：随包带霞鹜文楷 / 思源宋体 / 思源黑体（各一个字重，GB2312 子集，共约 3.7 MB，OFL 许可，许可证随包分发）；在「壁纸 → 字体」里点卡片即时切换，代码块/终端保持等宽字体；生僻字回退系统字体。字体走 Host 的 `/dsh-wallpaper/fonts/*` 只读路由（immutable 缓存 + sha256 ETag），不塞进 JS bundle。
@@ -62,7 +63,7 @@ target: dsh-wallpaper
 - **背景**：官方（默认，deepseek.com 首页云海 + 细网格）/ 极光（随明暗切换）
 - **我的图片**：上传、点卡片设为壁纸、两段式删除
 - **字体**：系统字体 / 霞鹜文楷 / 思源宋体 / 思源黑体 四张预览卡 + 字号缩放（90–110%）
-- **显示**：面板不透明度（20–100%）、背景模糊（0–24px）
+- **显示**：面板不透明度（20–100%，同时作用于输入框、气泡与交付卡片）、背景模糊（0–24px）
 - **恢复默认**
 
 滑杆改动 debounce 220ms 后回写 Host，本地即时生效。
@@ -95,7 +96,7 @@ target: dsh-wallpaper
 ## 开发
 
 ```sh
-npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 45 条行为测试
+npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 46 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI + 字体 manifest）
 npm run fonts        # 重新生成打包字体（仅换字体源时需要；需 fonttools + brotli + 网络）
@@ -144,6 +145,7 @@ dsh-wallpaper/
 | 设置页 | `ctx.slots.inject('settings.section', () => ctx.slots.register({ name, id: 'wallpaper', order: 5, label }, Page))`；页面 CSS 在 `ctx.effect` 里注入一次，不进每次渲染 |
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
 | 侧栏通透 | 除了 `[class*="_sidebarCol"]`，还覆盖官方令牌 `--dsw-specific-sidebar-fill`（Windows 标题栏也读它）；透明通道由 `--dwp-sidebar-*` 驱动 |
+| 输入框 / 气泡 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；输入框再加 `backdrop-filter:blur(28px)`，避免滚动正文透出来 |
 | 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
 | 字体怎么上屏 | Harness 的排版 token 全部经过 `--dsw-font-family → var(--dsh-font-family-text, …)`；插件在 `<html>` 上设 `--dsh-font-family-text` 并注入 `@font-face`，不重发布主题、不动品牌字体。代码字体（`--dsh-font-family-code`）保持系统等宽 |
 | 字号缩放不重排主题 | 从 Harness 基础样式提取 51 个可缩放排版 token（`--dsw-font-*`），按比例重写 px；这些 token 与正文/代码/终端字号都写在 `<body>` 内联变量上（Harness 把它们声明在 body，主题 presenter 也写 body，故监听 `theme/change` 在下一帧覆盖）。只改自定义属性，不 bump theme revision |
@@ -156,6 +158,7 @@ dsh-wallpaper/
 
 - **样式重建**：`body::before` 的规则里带着内联 webp，只在切换壁纸（官方 / 极光 / 某张自定义图）时重写一次；拖动滑杆只改 `--dwp-panel-alpha` / `--dwp-filter` / `--dwp-transform` / `--dwp-sidebar-*` 这些自定义属性。
 - **主题层不参与拖动**：`theme.overrideTokens` 会 bump revision 并让每个主题消费者重渲染，所以 token 只在启用时注册一次，透明度用 `rgba(..., var(--dwp-panel-alpha))` 从 CSS 变量读——拖滑杆不触发任何 `theme/change`。
+- **输入框毛玻璃**：只有输入框卡片用了 `backdrop-filter`（28px，面积小）；气泡与交付卡片走纯 alpha 的 `color-mix`，不建 filter 图层。
 - **重绘合并**：所有状态变化走 `requestAnimationFrame` 合并，一帧最多重绘一次；快速拖动 100+ 次/秒的触控板也不会把主线程刷满。
 - **默认不建额外图层**：模糊为 0 时 `filter/transform` 都是 `none`，浏览器不分配 filter 渲染面、也不多一层合成层；模糊 > 0 才按 `3×blur/视口` 动态放大，避免边缘露底。
 - **缩略图**：设置页 168 px 卡片用 336×210 的缩略图（内置图各约 700 B），不会为一张卡片解码 13.7 MB 大图。
@@ -168,6 +171,7 @@ dsh-wallpaper/
 ## 已知边界
 
 - 侧栏选择器 `[class*="_sidebarCol"]` 依赖上游布局的 css-modules 局部名；上游大改版时需复核，失效只会退回官方底色，不破坏布局。
+- 交付卡片（「已编辑 N 个文件」）的透明规则依赖上游 `vdszpW_*` / `IBlBFq_*` 局部名；上游升级改名会退回实色卡片，不影响功能。与侧栏 `_sidebarCol` 同类风险。
 - 图片原样保存不压缩，接近 20 MB 的图会占磁盘；显示层用 `background-size:cover` 缩放。
 - 上传是整文件 POST，没有进度条（本地回环很快）；失败在页面行内报错。
 - 同一时刻只有一张「当前壁纸」：自定义图库可以有多张，但明暗共用一个图。
@@ -178,7 +182,7 @@ dsh-wallpaper/
 - 字体子集只覆盖 GB2312（6763 汉字）+ 拉丁/标点/全角；生僻字回退系统字体，混排时字形会有差异。只打包 400 字重，`font-weight:500/600` 由浏览器合成加粗，观感略逊于真粗体。
 - 若曾在 Harness 原生「外观 → 字体」里设置了正文字体，那边的 `<body>` 内联值优先级更高，会盖住插件的选择；把原生设置清空即可。
 - 字号缩放作用于 Harness 的排版 token 与正文/代码/终端字号；图标、间距不缩放（是「字号缩放」而不是界面缩放）。
-- 行为测试覆盖 45 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
+- 行为测试覆盖 46 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
 
 ## 数据完整性
 

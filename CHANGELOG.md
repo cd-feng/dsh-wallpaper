@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」交付卡片也会透出壁纸——此前这几处还是实色填充，壁纸被大块盖住。
+
+- **输入框（composer）**：`--dsw-specific-input-major` 改为跟随「面板不透明度」的半透明色（面板 alpha +0.06），并加 28px 背景模糊：卡片浮在滚动正文之上，纯透明会让消息文字透出来，毛玻璃把下层糊掉、又保留壁纸的颜色。普通 / 紧凑 / 嵌入等 composer 变体共用同一 token，一并生效。
+- **用户气泡**：`--dsw-specific-bubble` 同样跟随面板不透明度；亮色 `#edf3fe`、暗色 `#2c2c2e` 的色相保留，只把 alpha 换成变量。
+- **Markdown 代码块**：正文卡片与顶部 `bash` 条分别用 `--dsw-alias-markdown-code-block` / `-banner`，一并换成半透明（暗色 `#1b1b1c` / `#2c2c2e`、亮色 `#f9fafb`），语法高亮色不动。
+- **交付卡片**（`dsh-client-ui-deliverables` 的「已编辑 N 个文件」与单文件卡片）：body 的 `--dsw-alias-bg-layer-1`、header 的 `--changes-fill` / `--deliverable-fill` 用 `color-mix()` 混入透明度，hover / focus 状态同步；边框、圆角、diff 颜色不动。
+- **实现**：新增 `--dwp-surface-alpha` / `--dwp-surface-mix`（面板 alpha +0.06，`requestAnimationFrame` 合并写入），拖滑杆照旧零主题重发布；`prefers-reduced-transparency` 时随 token 层一起回滚，禁用插件不留脏样式。
+- **耦合提示**：交付卡片选择器依赖上游 css-modules 的 `vdszpW_*` / `IBlBFq_*` 局部名（与既有 `_sidebarCol` 同类风险），上游大改版时需复核，失效只会退回实色卡片。
+- **测试**：新增 surface token、混合变量、样式规则、滑杆联动与销毁回滚断言，共 46 条。
+
 ## 0.6.0
 
 新增「字体」能力：三款 OFL 正文字体 + 字号缩放，都走官方 typography 变量，不重发布主题。

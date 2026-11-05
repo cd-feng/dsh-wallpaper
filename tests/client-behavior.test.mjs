@@ -447,12 +447,31 @@ test("defaults to the official-style wallpaper and cleans up on dispose", async 
 
   assert.equal(app.overrides.length, 1, "the token layer is registered exactly once");
   const tokens = app.overrides.at(-1).tokens;
-  assert.deepEqual(Object.keys(tokens).sort(), ["--dsw-alias-bg-base", "--dsw-specific-sidebar-fill"]);
+  assert.deepEqual(Object.keys(tokens).sort(), [
+    "--dsw-alias-bg-base",
+    "--dsw-alias-markdown-code-block",
+    "--dsw-alias-markdown-code-block-banner",
+    "--dsw-specific-bubble",
+    "--dsw-specific-input-major",
+    "--dsw-specific-sidebar-fill",
+  ]);
   // The alpha is a CSS variable: dragging the slider must not re-publish the theme.
   assert.match(tokens["--dsw-alias-bg-base"].light, /var\(--dwp-panel-alpha/);
   assert.match(tokens["--dsw-alias-bg-base"].dark, /var\(--dwp-panel-alpha/);
   assert.match(tokens["--dsw-specific-sidebar-fill"].light, /var\(--dwp-sidebar-light/);
+  // Composer and bubbles are layer surfaces: they follow the surface alpha so the
+  // wallpaper stays visible behind them instead of being covered by solid fills.
+  assert.match(tokens["--dsw-specific-input-major"].light, /rgba\(255, 255, 255, var\(--dwp-surface-alpha/);
+  assert.match(tokens["--dsw-specific-input-major"].dark, /rgba\(44, 44, 46, var\(--dwp-surface-alpha/);
+  assert.match(tokens["--dsw-specific-bubble"].light, /rgba\(237, 243, 254, var\(--dwp-surface-alpha/);
+  assert.match(tokens["--dsw-specific-bubble"].dark, /rgba\(44, 44, 46, var\(--dwp-surface-alpha/);
+  // Markdown code blocks follow the same surface alpha (body + banner).
+  assert.match(tokens["--dsw-alias-markdown-code-block"].dark, /rgba\(27, 27, 28, var\(--dwp-surface-alpha/);
+  assert.match(tokens["--dsw-alias-markdown-code-block"].light, /rgba\(249, 250, 251, var\(--dwp-surface-alpha/);
+  assert.match(tokens["--dsw-alias-markdown-code-block-banner"].dark, /rgba\(44, 44, 46, var\(--dwp-surface-alpha/);
   assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.52");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.58");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-mix"), "58%");
 
   app.dispose();
   assert.equal(app.dom.attributes.has("data-dsh-wallpaper"), false);
@@ -460,6 +479,39 @@ test("defaults to the official-style wallpaper and cleans up on dispose", async 
   assert.equal(app.released.length, app.overrides.length);
   assert.ok(app.released.every((source) => source === "dsh-wallpaper"));
   assert.equal(app.dom.rootStyle.has("--dwp-panel-alpha"), false, "custom properties are removed on dispose");
+  assert.equal(app.dom.rootStyle.has("--dwp-surface-alpha"), false, "surface alpha is removed too");
+});
+
+test("the composer, bubbles and deliverable cards inherit the panel opacity", async () => {
+  const app = await boot();
+  const sheet = sheetOf(app).textContent;
+  // The composer floats over the transcript and frosts its backdrop so message
+  // text cannot bleed through the translucent card.
+  assert.match(sheet, /\[class\*="composerStack"\] \[class\*="_card"\]/);
+  assert.match(sheet, /\[class\*="composerSeat"\] \[class\*="_card"\]/);
+  assert.match(sheet, /backdrop-filter:blur\(28px\) saturate\(1\.35\)/);
+  // Deliverable / file-change cards mix their own fills with the surface alpha.
+  assert.match(
+    sheet,
+    /\[class\*="vdszpW_card"\]\{background:color-mix\(in srgb,var\(--dsw-alias-bg-layer-1\) var\(--dwp-surface-mix, 58%\),transparent\)/,
+  );
+  assert.match(sheet, /\[class\*="vdszpW_card"\] \[class\*="vdszpW_header"\]\{background:color-mix/);
+  assert.match(sheet, /\[class\*="vdszpW_header"\]:hover:not\(:disabled\)/);
+  assert.match(sheet, /\[class\*="IBlBFq_file"\]\{background:color-mix/);
+  assert.match(sheet, /\[class\*="IBlBFq_file"\]:hover\{background:color-mix/);
+
+  // The surface alpha is derived from the same slider and no theme re-publish.
+  const range = () =>
+    findAll(app.render(), (element) => element.type === "input" && element.props.type === "range")[1];
+  range().props.onChange({ currentTarget: { value: "80" } });
+  await app.settle();
+  assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.8");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.86");
+  assert.equal(app.dom.rootStyle.get("--dwp-surface-mix"), "86%");
+  assert.equal(app.overrides.length, 1, "the token layer is still registered only once");
+  app.dispose();
+  assert.equal(app.dom.rootStyle.has("--dwp-surface-alpha"), false);
+  assert.equal(app.dom.rootStyle.has("--dwp-surface-mix"), false);
 });
 
 test("a Host-selected custom image becomes the wallpaper", async () => {
