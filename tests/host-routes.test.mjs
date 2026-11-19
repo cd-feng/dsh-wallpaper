@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
 
-import { apply, dataDirFor, dshHome, hostProfileFor, isTrustedRequest } from "../lib/index.js";
+import { apply, dataDirFor, dshHome, hostProfileFor, isTrustedRequest, trustedGuard } from "../lib/index.js";
 
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -28,7 +28,7 @@ after(() => {
   ownedRoots.clear();
 });
 
-function setup({ home = null } = {}) {
+function setup({ home = null, connection = undefined } = {}) {
   const root = home ?? mkdtempSync(join(tmpdir(), "dsh-wallpaper-"));
   if (home === null) ownedRoots.add(root);
   const previous = process.env.DSH_HOME;
@@ -55,6 +55,9 @@ function setup({ home = null } = {}) {
     inject(services, callback) {
       assert.deepEqual(services, ["webServer"]);
       callback(host);
+    },
+    get(name) {
+      return name === "connection" ? connection : undefined;
     },
   };
   apply(ctx);
@@ -445,6 +448,43 @@ test("isTrustedRequest accepts the page's own requests only", () => {
   // Origin scheme and port must match the page, not just the hostname.
   assert.equal(isTrustedRequest(request({ host: "127.0.0.1:9", origin: "https://127.0.0.1:9" })), false);
   assert.equal(isTrustedRequest(request({ host: "127.0.0.1:9", origin: "http://127.0.0.1:9", "sec-fetch-site": "same-origin" })), true);
+});
+
+test("trustedGuard defers to Connection's fence when the service is there", () => {
+  const request = (headers, peer = "127.0.0.1") => ({ headers, socket: { remoteAddress: peer } });
+  const asked = [];
+  const rejecting = trustedGuard({
+    get(name) {
+      asked.push(name);
+      return { requestRejection: () => 403 };
+    },
+  });
+  // The page's own request would pass the loopback fence, so only Connection's
+  // answer can make this false.
+  assert.equal(rejecting(request({ host: "127.0.0.1:9" })), false);
+  assert.deepEqual(asked, ["connection"], "the service is resolved per request");
+  const allowing = trustedGuard({ get: () => ({ requestRejection: () => undefined }) });
+  assert.equal(allowing(request({ host: "127.0.0.1:9" })), true);
+});
+
+test("trustedGuard falls back to the loopback fence without Connection", () => {
+  const request = (headers, peer = "127.0.0.1") => ({ headers, socket: { remoteAddress: peer } });
+  // `get` may be missing entirely (bare compositions, older hosts).
+  const guard = trustedGuard({});
+  assert.equal(guard(request({ host: "127.0.0.1:9" })), true);
+  assert.equal(guard(request({ host: "evil.example.com" })), false);
+  const undefinedService = trustedGuard({ get: () => undefined });
+  assert.equal(undefinedService(request({ host: "127.0.0.1:9", origin: "http://127.0.0.1:9" })), true);
+  assert.equal(undefinedService(request({ host: "127.0.0.1:9", "sec-fetch-site": "cross-site" })), false);
+});
+
+test("a rejecting Connection service closes every route, assets included", async () => {
+  const app = setup({ connection: { requestRejection: () => 403 } });
+  for (const path of ["/dsh-wallpaper/state", "/dsh-wallpaper/config", "/dsh-wallpaper/library"]) {
+    const response = await call(app.routes, "GET", path);
+    assert.equal(response.status, 403, path);
+  }
+  app.dispose();
 });
 
 test("rejects unsupported, empty and oversized uploads", async () => {

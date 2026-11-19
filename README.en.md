@@ -88,7 +88,7 @@ npm run fonts:check  # verify fonts/ against manifest sha256 / sizes / woff2 mag
 npm run wallpapers   # regenerate the built-in art (Pillow + numpy, fixed seed)
 ```
 
-CI runs the syntax check and tests on Node 22/24 and verifies that a rebuild leaves `lib/client.js` unchanged.
+CI runs the syntax check and tests on Node 24 and verifies that a rebuild leaves `lib/client.js` unchanged.
 
 ## Performance
 

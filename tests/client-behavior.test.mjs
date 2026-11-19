@@ -535,14 +535,19 @@ test("the composer, bubbles and deliverable cards inherit the panel opacity", as
   assert.match(sheet, /\[class\*="composerSeat"\] \[class\*="_card"\]/);
   assert.match(sheet, /backdrop-filter:blur\(28px\) saturate\(1\.35\)/);
   // Deliverable / file-change cards mix their own fills with the surface alpha.
+  // These must key off the semantic data attributes, not the CSS-module hashes:
+  // the hashes are build output of the deliverables plugin and change freely.
   assert.match(
     sheet,
-    /\[class\*="vdszpW_card"\]\{background:color-mix\(in srgb,var\(--dsw-alias-bg-layer-1\) var\(--dwp-surface-mix, 58%\),transparent\)/,
+    /\[data-changed-files\]\{background:color-mix\(in srgb,var\(--dsw-alias-bg-layer-1\) var\(--dwp-surface-mix, 58%\),transparent\)/,
   );
-  assert.match(sheet, /\[class\*="vdszpW_card"\] \[class\*="vdszpW_header"\]\{background:color-mix/);
-  assert.match(sheet, /\[class\*="vdszpW_header"\]:hover:not\(:disabled\)/);
-  assert.match(sheet, /\[class\*="IBlBFq_file"\]\{background:color-mix/);
-  assert.match(sheet, /\[class\*="IBlBFq_file"\]:hover\{background:color-mix/);
+  assert.match(sheet, /\[data-changed-files\] \[class\*="header"\]\{background:color-mix/);
+  assert.match(sheet, /\[data-changed-files\] \[class\*="header"\]:hover:not\(:disabled\)/);
+  assert.match(sheet, /\[data-presented-file\]\{background:color-mix/);
+  assert.match(sheet, /\[data-presented-file\]:hover\{background:color-mix/);
+  // Guard the regression: a CSS-module hash prefix never survives an upstream build.
+  assert.doesNotMatch(sheet, /\[class\*="vdszpW_/);
+  assert.doesNotMatch(sheet, /\[class\*="IBlBFq_/);
 
   // The surface alpha is derived from the same slider and no theme re-publish.
   const range = () =>
@@ -644,12 +649,29 @@ test("an unreachable Host half keeps the default look and explains the restart",
 
 test("registers a settings section at order 5 with a localized label", async () => {
   const app = await boot();
-  assert.deepEqual(app.injections, ["settings.section"]);
-  assert.equal(app.registrations.length, 1);
-  assert.equal(app.registrations[0].options.name, "settings.section");
-  assert.equal(app.registrations[0].options.id, "wallpaper");
-  assert.equal(app.registrations[0].options.order, 5);
-  assert.equal(app.registrations[0].options.label(), "壁纸");
+  const section = app.registrations.find((entry) => entry.options.name === "settings.section");
+  assert.ok(section, "registers the settings section");
+  assert.equal(section.options.id, "wallpaper");
+  assert.equal(section.options.order, 5);
+  assert.equal(section.options.label(), "壁纸");
+  assert.deepEqual([...new Set(app.injections)].sort(), ["settings.section", "settings.section.icon"]);
+  app.dispose();
+});
+
+test("gives the settings nav row its own icon instead of the generic gear", async () => {
+  const app = await boot();
+  const icon = app.registrations.find((entry) => entry.options.name === "settings.section.icon");
+  assert.ok(icon, "registers a settings.section.icon");
+  // The nav matches the icon to the row by id, so it has to be the section id.
+  assert.equal(icon.options.id, "wallpaper");
+  const tree = icon.component({ size: 16, active: true });
+  assert.equal(tree.type, "svg");
+  assert.equal(tree.props.width, 16);
+  assert.equal(tree.props.height, 16);
+  assert.equal(tree.props.viewBox, "0 0 16 16");
+  assert.equal(tree.props.stroke, "currentColor");
+  // A missing size falls back to the 16px the nav reserves.
+  assert.equal(icon.component({}).props.width, 16);
   app.dispose();
 });
 

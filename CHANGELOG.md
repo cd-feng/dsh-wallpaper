@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0
+
+对齐 DeepSeek Harness 0.2.2-rc.5。四个改动都能在不改配置、不动已有数据的前提下生效。
+
+- **路由守卫走官方检查**：`/dsh-wallpaper/*` 的放行判定从自写的回环 Host/Origin 栅栏换成 `connection.requestRejection()`——在同样的 Host/Origin 检查之外多一层浏览器会话认证，本机其它进程不能再靠伪造 `Host` 头把上传的原图拉走。`connection` 不可用时自动回退到原来的栅栏，单独跑 Host 半侧的测试不受影响。
+- **交付卡片改为语义选择器**：`[class*="vdszpW_card"]` / `[class*="IBlBFq_file"]` 换成 `deliverables` 自己写在卡根上的 `data-changed-files` / `data-presented-file`。原来的 hash 前缀是上游 CSS Module 的构建产物，上游改一次类名顺序就会静默失效（卡片突然不再透出壁纸）。
+- **设置页导航图标**：注册 `settings.section.icon`（`id: wallpaper`），不再回落到通用齿轮。
+- **数据目录判定**：优先用 `profileContext.home` / `.name`，bundle 名与 cwd 的启发式只作为兜底。
+- **版本闸门**：`engines.node` 提到 `>=24.9`（DSH 自 0.2.1-rc.2 起不支持 Node 22），`engines.dsh` 提到 `>=0.2.2-rc.1`；CI 矩阵收敛为 Node 24。
+- **测试**：新增 `trustedGuard` 的三条断言与导航图标的一条断言，共 59 条。
+
 ## 0.9.0
 
 左侧顶部「deepseek · HARNESS」品牌标可美化：新增「品牌标识」设置分区，四选一——跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变，改动即时生效。只重绘配色、底纹与 HARNESS 徽章，官方字标与鲸鱼不动。

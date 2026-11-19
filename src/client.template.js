@@ -573,6 +573,13 @@ window.__ModuleLoader__.load({
           light: "rgba(249, 250, 251, var(--dwp-sidebar-light, 0.68))",
           dark: "rgba(27, 27, 28, var(--dwp-sidebar-dark, 0.74))",
         },
+        // Everything below is outside the documented override surface: DSH
+        // publishes 14 inspectable tokens and `--dsw-specific-input-major`,
+        // `--dsw-specific-bubble` and the two markdown code-block tokens are not
+        // among them. `validateOverrides` only checks the shape, so a rename
+        // upstream drops these silently rather than failing — re-check them on
+        // every DSH upgrade (they still resolve today in 0.2.2-rc.5).
+        //
         // The composer card and the user bubbles are "layer" surfaces painted
         // over the wallpaper; leaving them opaque was the remaining place the
         // artwork got covered. They follow the same knob as the columns
@@ -687,13 +694,17 @@ window.__ModuleLoader__.load({
       // Deliverable / file-change cards are elevated surfaces with their own
       // fills (`--dsw-alias-bg-layer-1`, `--changes-fill`, `--deliverable-fill`);
       // mix them with transparency so the wallpaper shows through them too.
+      // `data-changed-files` / `data-presented-file` are the semantic attributes the
+      // deliverables plugin puts on the card roots; the CSS-module hash prefixes
+      // change with any upstream restyle, so matching those is not a contract.
       const cardMix = "var(--dwp-surface-mix, 58%)";
+      const card = `body[${BODY_ATTR}]`;
       rules.push(
-        `body[${BODY_ATTR}] [class*="vdszpW_card"]{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) ${cardMix},transparent)}`,
-        `body[${BODY_ATTR}] [class*="vdszpW_card"] [class*="vdszpW_header"]{background:color-mix(in srgb,var(--changes-fill) ${cardMix},transparent)}`,
-        `body[${BODY_ATTR}] [class*="vdszpW_card"] [class*="vdszpW_header"]:hover:not(:disabled),body[${BODY_ATTR}] [class*="vdszpW_card"] button[class*="vdszpW_header"]:focus-visible{background:color-mix(in srgb,var(--changes-hover) ${cardMix},transparent)}`,
-        `body[${BODY_ATTR}] [class*="IBlBFq_file"]{background:color-mix(in srgb,var(--deliverable-fill) ${cardMix},transparent)}`,
-        `body[${BODY_ATTR}] [class*="IBlBFq_file"]:hover{background:color-mix(in srgb,var(--deliverable-hover) ${cardMix},transparent)}`,
+        `${card} [data-changed-files]{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) ${cardMix},transparent)}`,
+        `${card} [data-changed-files] [class*="header"]{background:color-mix(in srgb,var(--changes-fill) ${cardMix},transparent)}`,
+        `${card} [data-changed-files] [class*="header"]:hover:not(:disabled),${card} [data-changed-files] button[class*="header"]:focus-visible{background:color-mix(in srgb,var(--changes-hover) ${cardMix},transparent)}`,
+        `${card} [data-presented-file]{background:color-mix(in srgb,var(--deliverable-fill) ${cardMix},transparent)}`,
+        `${card} [data-presented-file]:hover{background:color-mix(in srgb,var(--deliverable-hover) ${cardMix},transparent)}`,
       );
       return rules.join("\n");
     }
@@ -1659,6 +1670,37 @@ window.__ModuleLoader__.load({
           },
           createPage(ctx, store, library),
         ),
+      );
+
+      // The settings nav resolves its icon by `settings.section` id and otherwise
+      // falls back to the generic gear; `only: row.id` means the id has to match.
+      ctx.slots.inject("settings.section.icon", () =>
+        ctx.slots.register({ name: "settings.section.icon", id: SECTION_ID, order: 5 }, WallpaperNavIcon),
+      );
+    }
+
+    /**
+     * 16px nav glyph: a framed photo with a horizon line, drawn in `currentColor`
+     * so it follows the theme. The slot passes `{ size, active }`.
+     */
+    function WallpaperNavIcon(props) {
+      const size = typeof props?.size === "number" ? props.size : 16;
+      return h(
+        "svg",
+        {
+          width: size,
+          height: size,
+          viewBox: "0 0 16 16",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+          focusable: "false",
+        },
+        h("rect", { x: 1.9, y: 2.9, width: 12.2, height: 10.2, rx: 2.2 }),
+        h("path", { d: "M2.6 11.1 5.7 8.1a1.1 1.1 0 0 1 1.5 0l1.5 1.5 1.2-1.15a1.1 1.1 0 0 1 1.5 0l1.9 1.85" }),
       );
     }
 

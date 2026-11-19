@@ -4,7 +4,7 @@
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![DSH](https://img.shields.io/badge/DeepSeek%20Harness-%E2%89%A50.2.1--rc.1-4B6BFB)
+![DSH](https://img.shields.io/badge/DeepSeek%20Harness-%E2%89%A50.2.2--rc.1-4B6BFB)
 
 ## 特性
 
@@ -109,7 +109,7 @@ npm run wallpapers   # 重画内置壁纸（需 python3 + `pip install pillow nu
                      # 官方款：官网同款配色 + 域扭曲 fBm 云絮；极光款：原装饰版
 ```
 
-CI 在 Node 22 / 24 上跑语法检查与测试，校验重建后的 `lib/client.js` 与提交内容一致（防止忘记 `npm run build`），并校验 `fonts/` 与 manifest 的 sha256 一致。
+CI 在 Node 24 上跑语法检查与测试，校验重建后的 `lib/client.js` 与提交内容一致（防止忘记 `npm run build`），并校验 `fonts/` 与 manifest 的 sha256 一致。
 
 ## 目录结构
 
