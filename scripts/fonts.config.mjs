@@ -11,12 +11,6 @@ export const SOURCES = [
     sha256: "",
   },
   {
-    name: "NotoSerifSC.ttf",
-    url: "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoserifsc/NotoSerifSC%5Bwght%5D.ttf",
-    bytes: 25125512,
-    sha256: "",
-  },
-  {
     name: "NotoSansSC.ttf",
     url: "https://raw.githubusercontent.com/google/fonts/a85815a42757630ce188fdad368c2dfc444d4773/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
     bytes: 17772300,
@@ -29,11 +23,6 @@ export const LICENSES = {
     name: "SIL Open Font License 1.1",
     url: "https://raw.githubusercontent.com/lxgw/LxgwWenKai/v1.530/OFL.txt",
     file: "LICENSE-wenkai.txt",
-  },
-  serif: {
-    name: "SIL Open Font License 1.1",
-    url: "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoserifsc/OFL.txt",
-    file: "LICENSE-noto-serif-sc.txt",
   },
   sans: {
     name: "SIL Open Font License 1.1",
@@ -56,19 +45,6 @@ export const FONTS = [
     file: "wenkai.woff2",
     previewFile: "wenkai-preview.woff2",
     license: "wenkai",
-  },
-  {
-    id: "serif",
-    family: "DWP Noto Serif SC",
-    labels: { zh: "思源宋体", en: "Noto Serif SC" },
-    sample: "山河远阔，人间烟火。宋体雅正 Aa 123",
-    previewText: "山河远阔 宋体 Aa 123",
-    fallback: '"Songti SC", "STSong", "Noto Serif CJK SC", serif',
-    source: "NotoSerifSC.ttf",
-    variable: "wght",
-    file: "serif.woff2",
-    previewFile: "serif-preview.woff2",
-    license: "serif",
   },
   {
     id: "sans",

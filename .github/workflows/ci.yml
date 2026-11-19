@@ -51,7 +51,7 @@ jobs:
           npm pack --dry-run --json > pack.json
           node - <<'NODE'
           const files = new Map(JSON.parse(require("node:fs").readFileSync("pack.json", "utf8"))[0].files.map((file) => [file.path, file.size]));
-          const required = ["lib/client.js", "lib/index.js", "cordis.patch.yml", "locale/zh.json", "locale/en.json", "icon.svg", "package.json", "fonts/manifest.json", "fonts/wenkai.woff2", "fonts/serif.woff2", "fonts/sans.woff2", "fonts/licenses/LICENSE-wenkai.txt"];
+          const required = ["lib/client.js", "lib/index.js", "cordis.patch.yml", "locale/zh.json", "locale/en.json", "icon.svg", "package.json", "fonts/manifest.json", "fonts/wenkai.woff2", "fonts/sans.woff2", "fonts/licenses/LICENSE-wenkai.txt"];
           const missing = required.filter((path) => !files.has(path) || files.get(path) === 0);
           if (missing.length > 0) {
             console.error(`missing runtime files in the tarball: ${missing.join(", ")}`);
@@ -62,7 +62,7 @@ jobs:
             console.error(`lib/client.js is ${client} bytes; the inlined artwork should keep it in 50–400 KB`);
             process.exit(1);
           }
-          const fontBytes = ["wenkai", "serif", "sans"].reduce((sum, id) => sum + (files.get(`fonts/${id}.woff2`) ?? 0), 0);
+          const fontBytes = ["wenkai", "sans"].reduce((sum, id) => sum + (files.get(`fonts/${id}.woff2`) ?? 0), 0);
           if (fontBytes < 2_000_000 || fontBytes > 8_000_000) {
             console.error(`bundled fonts total ${fontBytes} bytes; expected 2–8 MB (the committed subsets)`);
             process.exit(1);

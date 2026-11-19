@@ -192,10 +192,10 @@ test("starts with defaults and creates the data files", async () => {
     brandStyle: "off",
   });
   assert.deepEqual(payload.images, []);
-  assert.equal(payload.fonts.length, 3);
+  assert.equal(payload.fonts.length, 2);
   assert.deepEqual(
     payload.fonts.map((font) => font.id),
-    ["wenkai", "serif", "sans"],
+    ["wenkai", "sans"],
   );
   assert.equal(payload.fonts[0].labels.zh, "霞鹜文楷");
   assert.match(payload.fonts[0].fallback, /Kaiti SC/);
@@ -225,7 +225,7 @@ test("serves the bundled fonts with an immutable cache and ETag/304", async () =
   assert.equal(cached.status, 304);
   assert.equal(cached.body().length, 0);
 
-  const preview = await call(app.routes, "GET", "/dsh-wallpaper/fonts/serif-preview.woff2");
+  const preview = await call(app.routes, "GET", "/dsh-wallpaper/fonts/sans-preview.woff2");
   assert.equal(preview.status, 200);
   assert.equal(preview.body().subarray(0, 4).toString("latin1"), "wOF2");
   assert.ok(preview.body().length < 20 * 1024, "preview subsets stay tiny");
@@ -259,10 +259,10 @@ test("persists the font choice and scale, and clamps bad values", async () => {
   const app = setup({ home: root });
   const patched = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fontId: "serif", fontScale: 110 }),
+    body: JSON.stringify({ fontId: "sans", fontScale: 110 }),
   });
   assert.equal(patched.status, 200);
-  assert.equal(patched.json().config.fontId, "serif");
+  assert.equal(patched.json().config.fontId, "sans");
   assert.equal(patched.json().config.fontScale, 110);
 
   const bad = await call(app.routes, "PATCH", "/dsh-wallpaper/config", {

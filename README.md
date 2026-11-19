@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置「官方」（复刻 [deepseek.com](https://www.deepseek.com/) 首页的云海底纹 + 细网格，默认）与「极光」两套，也能上传自己的图片；另带三款打包的 OFL 正文字体（霞鹜文楷 / 思源宋体 / 思源黑体）与 90–110% 字号缩放，可调面板通透度与背景模糊；左侧顶部「deepseek · HARNESS」品牌标也有四套可切换的样式。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 换一张真正的背景图：官方界面的深/浅纯色底换成壁纸。设置里多一个和「通用」同级、序号 5 的「壁纸」页——内置「官方」（复刻 [deepseek.com](https://www.deepseek.com/) 首页的云海底纹 + 细网格，默认）与「极光」两套，也能上传自己的图片；另带两款打包的 OFL 正文字体（霞鹜文楷 / 思源黑体）与 90–110% 字号缩放，可调面板通透度与背景模糊；左侧顶部「deepseek · HARNESS」品牌标也有四套可切换的样式。
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -13,12 +13,12 @@
 - **官方机制上屏**：`ctx.theme.overrideTokens()` 把 `--dsw-alias-bg-base` 换成半透明 rgba，`body::before` 固定层画图；插件禁用/卸载时全部自动回滚，不留脏样式。
 - **跟随明暗**：每套内置壁纸都有亮色、深色两张，随 Harness「外观配色」自动切换；上传的图片同时用于两种配色。
 - **跟随系统**：系统开启「降低透明度」时自动暂停壁纸，关掉后自动恢复。
-- **面板透出壁纸（0.7）**：输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」等交付卡片也跟随「面板不透明度」半透明；输入框另加背景模糊，浮在滚动正文上方也不会被文字穿透。
+- **面板透出壁纸（0.7）**：输入框、用户气泡、Markdown 代码块与「已编辑 N 个文件」等交付卡片也跟随「面板不透明度」半透明；输入框因为底下有正文滚过，单独保一条 86% 的填充不透明度下限（不再用背景模糊，省掉每帧回读 backdrop）。
 - **浮层不透明度可单独调（0.8）**：上面这几类浮层默认跟面板联动（面板 +6%），在「显示」里拖动「浮层不透明度」即可单独定值，点「跟随面板」回到联动。
 - **品牌标识可美化（0.9）**：左侧顶部「deepseek · HARNESS」可切成「跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变」四套——只在 CSS 层重绘配色、底纹与 HARNESS 徽章，官方字标和鲸鱼原样保留；亮暗各一套配色，点卡片即时生效。
 - **上传自己的图**：PNG / JPEG / WebP / GIF / AVIF，≤20 MB，多选，两段式删除。
 - **重启不丢**：Desktop 版是 `--port 0`，每次启动浏览器 origin 都变，所以图片与选择存在 **Host 侧**（`<DSH_HOME>/dsh-wallpaper-desktop/`），不用 localStorage / IndexedDB。
-- **可换字体（0.6）**：随包带霞鹜文楷 / 思源宋体 / 思源黑体（各一个字重，GB2312 子集，共约 3.7 MB，OFL 许可，许可证随包分发）；在「壁纸 → 字体」里点卡片即时切换，代码块/终端保持等宽字体；生僻字回退系统字体。字体走 Host 的 `/dsh-wallpaper/fonts/*` 只读路由（immutable 缓存 + sha256 ETag），不塞进 JS bundle。
+- **可换字体（0.6）**：随包带霞鹜文楷 / 思源黑体（各一个字重，GB2312 子集，共约 2.4 MB，OFL 许可，许可证随包分发）；在「壁纸 → 字体」里点卡片即时切换，代码块/终端保持等宽字体；生僻字回退系统字体。字体走 Host 的 `/dsh-wallpaper/fonts/*` 只读路由（immutable 缓存 + sha256 ETag），不塞进 JS bundle。
 - **字号缩放（0.6）**：90–110% 滑杆同时缩放界面排版 token（`--dsw-font-*`）与正文/代码/终端字号变量；只改 CSS 变量，不触发主题重发布。
 
 ## 安装
@@ -64,7 +64,7 @@ target: dsh-wallpaper
 
 - **背景**：官方（默认，deepseek.com 首页云海 + 细网格）/ 极光（随明暗切换）
 - **我的图片**：上传、点卡片设为壁纸、两段式删除
-- **字体**：系统字体 / 霞鹜文楷 / 思源宋体 / 思源黑体 四张预览卡 + 字号缩放（90–110%）
+- **字体**：系统字体 / 霞鹜文楷 / 思源黑体 三张预览卡 + 字号缩放（90–110%）
 - **显示**：面板不透明度（20–100%，同时作用于输入框、气泡、代码块与交付卡片）、浮层不透明度（20–100%，默认跟随面板 +6%，可单独覆盖）、背景模糊（0–24px）
 - **品牌标识**：跟随官方 / 玻璃胶囊 / 渐变字标 / 玻璃 + 渐变 四张卡片，点选即时生效
 - **恢复默认**
@@ -149,7 +149,7 @@ dsh-wallpaper/
 | 服务方法绑定 | `ctx.locale.subscribe` / `getSnapshot` 必须包一层再交给 `useSyncExternalStore`，直接传会丢 `this`、整页渲染崩 |
 | 侧栏通透 | 除了 `[class*="_sidebarCol"]`，还覆盖官方令牌 `--dsw-specific-sidebar-fill`（Windows 标题栏也读它）；透明通道由 `--dwp-sidebar-*` 驱动 |
 | 品牌标怎么美化 | 官方字标由 `dsh-client-ui-brand-official` 注册进 `sidebar.brand.mark` / `sidebar.brand.name` 两个 single slot；插件不去抢注册，只在 CSS 里用 `[data-slot="sidebar.brand.*"]` 选中，把字标路径与鲸鱼的 `fill`（SVG 表现属性，CSS 能盖过它）换成 `url(#dwp-brand-*)` 渐变，渐变由隐藏的 `<defs>` 节点提供、亮暗两套坐标各自对齐；HARNESS 徽章是 SVG `rect` + 反白 path，分别改底色/描边与字色；玻璃胶囊用 `button:has([data-slot="sidebar.brand.name"])` 包住整行 |
-| 输入框 / 气泡 / 代码块 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；`--dwp-surface-alpha` = 面板 alpha +0.06，除非 `surfaceOpacity` 显式覆盖；输入框再加 `backdrop-filter:blur(28px)`，避免滚动正文透出来 |
+| 输入框 / 气泡 / 代码块 / 交付卡片怎么透 | token 层把 `--dsw-specific-input-major` / `--dsw-specific-bubble` / `--dsw-alias-markdown-code-block(-banner)` 改成 `rgba(..., var(--dwp-surface-alpha))`；交付卡片用 `color-mix()` 把自身 fill 混入 `--dwp-surface-mix`；`--dwp-surface-alpha` = 面板 alpha +0.06，除非 `surfaceOpacity` 显式覆盖；输入框不用 `backdrop-filter`（它每帧要回读整块 backdrop），改成 `--dwp-composer-alpha = max(面板 alpha +6%, 0.86)` 的填充下限，避免滚动正文透出来 |
 | 拖动滑杆不卡 | 带图片 data URI 的结构样式只在换壁纸时重写；透明度/模糊/缩放走 `--dwp-*` 自定义属性；所有重绘经 `requestAnimationFrame` 合并，一帧最多一次；token 层只在取整后的透明度变化时才重新注册 |
 | 字体怎么上屏 | Harness 的排版 token 全部经过 `--dsw-font-family → var(--dsh-font-family-text, …)`；插件在 `<html>` 上设 `--dsh-font-family-text` 并注入 `@font-face`，不重发布主题、不动品牌字体。代码字体（`--dsh-font-family-code`）保持系统等宽 |
 | 字号缩放不重排主题 | 从 Harness 基础样式提取 51 个可缩放排版 token（`--dsw-font-*`），按比例重写 px；这些 token 与正文/代码/终端字号都写在 `<body>` 内联变量上（Harness 把它们声明在 body，主题 presenter 也写 body，故监听 `theme/change` 在下一帧覆盖）。只改自定义属性，不 bump theme revision |
@@ -162,7 +162,7 @@ dsh-wallpaper/
 
 - **样式重建**：`body::before` 的规则里带着内联 webp，只在切换壁纸（官方 / 极光 / 某张自定义图）时重写一次；拖动滑杆只改 `--dwp-panel-alpha` / `--dwp-filter` / `--dwp-transform` / `--dwp-sidebar-*` 这些自定义属性。
 - **主题层不参与拖动**：`theme.overrideTokens` 会 bump revision 并让每个主题消费者重渲染，所以 token 只在启用时注册一次，透明度用 `rgba(..., var(--dwp-panel-alpha))` 从 CSS 变量读——拖滑杆不触发任何 `theme/change`。
-- **输入框毛玻璃**：只有输入框卡片用了 `backdrop-filter`（28px，面积小）；气泡与交付卡片走纯 alpha 的 `color-mix`，不建 filter 图层。
+- **输入框不建滤镜层**：0.10.1 起输入框也不再使用 `backdrop-filter`——它会让合成器在滚动正文时每帧重读一遍整块 backdrop，这正是本插件此前唯一常驻的每帧开销；改为抬高填充不透明度，观感一致、开销归零。气泡与交付卡片本来就是纯 alpha 的 `color-mix`，不建 filter 图层。
 - **重绘合并**：所有状态变化走 `requestAnimationFrame` 合并，一帧最多重绘一次；快速拖动 100+ 次/秒的触控板也不会把主线程刷满。
 - **默认不建额外图层**：模糊为 0 时 `filter/transform` 都是 `none`，浏览器不分配 filter 渲染面、也不多一层合成层；模糊 > 0 才按 `3×blur/视口` 动态放大，避免边缘露底。
 - **缩略图**：设置页 168 px 卡片用 336×210 的缩略图（内置图各约 700 B），不会为一张卡片解码 13.7 MB 大图。
@@ -205,7 +205,6 @@ dsh-wallpaper/
 | 字体 | 来源 | 许可证 |
 |---|---|---|
 | 霞鹜文楷 LXGW WenKai | [lxgw/LxgwWenKai](https://github.com/lxgw/LxgwWenKai) v1.530 | SIL OFL 1.1 |
-| 思源宋体 Noto Serif SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notoserifsc) | SIL OFL 1.1 |
 | 思源黑体 Noto Sans SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc) | SIL OFL 1.1 |
 
 woff2 为原字体按 GB2312 等字符集子集化后的衍生文件，保留 OFL 许可与原始版权声明，未使用保留字体名。

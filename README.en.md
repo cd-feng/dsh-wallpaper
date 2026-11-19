@@ -1,6 +1,6 @@
 # dsh-wallpaper
 
-Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur, three bundled OFL reading fonts (LXGW WenKai / Noto Serif SC / Noto Sans SC), a 90–110% text scale, and four switchable styles for the sidebar’s “deepseek · HARNESS” brand mark.
+Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpaper** settings page (order 5, sibling of *General*) ships two built-in wallpapers — **Official** (a static bake of the [deepseek.com](https://www.deepseek.com/) homepage hero: a near-flat pale-blue wash, soft warped-fBm wisps, fine CSS grid; the default) and **Aurora** — plus user uploads, panel opacity and background blur, two bundled OFL reading fonts (LXGW WenKai / Noto Sans SC), a 90–110% text scale, and four switchable styles for the sidebar’s “deepseek · HARNESS” brand mark.
 
 ![CI](https://github.com/cd-feng/dsh-wallpaper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -14,12 +14,12 @@ Replace the flat DeepSeek Harness background with a real wallpaper. A **Wallpape
 - **Uses the official theme mechanism** — `ctx.theme.overrideTokens()` turns `--dsw-alias-bg-base` translucent and a fixed `body::before` layer paints the image. Disabling or uninstalling the plugin rolls everything back.
 - **Light/dark aware** — both built-in wallpapers have light and dark variants that follow the app theme. Uploaded images are used for both.
 - **Respects the system setting** — the wallpaper pauses while *reduce transparency* is on.
-- **Translucent chrome (0.7)** — the composer, user bubbles, markdown code blocks and the *Edited N files* deliverable cards follow *panel opacity* instead of staying solid; the composer also frosts its backdrop so message text cannot bleed through.
+- **Translucent chrome (0.7)** — the composer, user bubbles, markdown code blocks and the *Edited N files* deliverable cards follow *panel opacity* instead of staying solid; the composer keeps a higher fill floor (86 %) instead of frosting its backdrop, so scrolling text cannot bleed through.
 - **Overlay opacity on its own (0.8)** — those overlays track the panel slider (panel +6 %) by default; drag *Overlay opacity* in *Display* to pin a separate value, or use *Follow panel* to restore the link.
 - **Brand mark styles (0.9)** — the sidebar’s “deepseek · HARNESS” mark can be left official or restyled as *glass capsule*, *gradient wordmark*, or *glass + gradient*. Only colours, backdrop and the HARNESS badge are repainted in CSS; the official lettering and whale stay untouched. Each style has light and dark palettes and applies instantly.
 - **Your own images** — PNG / JPEG / WebP / GIF / AVIF, up to 20 MB, multi-select, two-step delete.
 - **Survives restarts** — Desktop runs the Web server on a random port (`--port 0`), so the browser origin changes on every launch. Images and the selection are stored by the plugin Host under `<DSH_HOME>/dsh-wallpaper-desktop/`, not in localStorage/IndexedDB.
-- **Bundled fonts (0.6)** — LXGW WenKai, Noto Serif SC and Noto Sans SC, one weight each, subset to GB2312 (~3.7 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
+- **Bundled fonts (0.6)** — LXGW WenKai and Noto Sans SC, one weight each, subset to GB2312 (~2.4 MB total, SIL OFL with license texts). The *Fonts* section switches instantly; code blocks and the terminal keep their monospace stack, rare glyphs fall back to the system font. Fonts are served by the Host at `/dsh-wallpaper/fonts/*` (immutable cache + sha256 ETag), never inlined into the JS bundle.
 - **Text scale (0.6)** — the 90–110% slider scales the interface typography tokens (`--dsw-font-*`) and the conversation/code/terminal font-size variables; it only writes CSS variables and never republishes the theme.
 
 ## Install
@@ -96,7 +96,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 
 - **Style rebuilds** — the `body::before` rule carries the inlined WebPs and is rewritten only when the artwork changes. Sliders only move custom properties (`--dwp-panel-alpha`, `--dwp-filter`, `--dwp-transform`, `--dwp-sidebar-*`).
 - **No theme churn while dragging** — `theme.overrideTokens` bumps the theme revision and re-renders every theme consumer, so the token layer is registered once and reads its alpha from `rgba(..., var(--dwp-panel-alpha))`. Dragging a slider emits no `theme/change`.
-- **Frosted composer only** — just the composer card uses `backdrop-filter` (28 px, small area); bubbles and deliverable cards are plain-alpha `color-mix()`, so they allocate no filter surface.
+- **No filter surfaces** — since 0.10.1 nothing uses `backdrop-filter`: a backdrop blur makes the compositor re-read the whole backdrop on every scroll frame, which was this plugin’s only permanent per-frame cost. The composer raises its fill alpha instead (86 % floor). Bubbles and deliverable cards stay plain-alpha `color-mix()`.
 - **Coalesced repaints** — every state change goes through `requestAnimationFrame`, so a 100+ Hz trackpad drag still paints at most once per frame.
 - **No extra layers by default** — at blur 0 `filter`/`transform` are `none`, so the browser allocates no filter surface and no extra composited layer; a non-zero blur scales by `3×blur / viewport` so the feathered edge stays off-screen.
 - **Thumbnails** — the 168 px cards use 336×210 bakes (≈700 B each for the built-ins) instead of decoding a 13.7 MB original.
@@ -142,7 +142,6 @@ The bundled typefaces are distributed under the SIL Open Font License 1.1; the f
 | Font | Source | License |
 |---|---|---|
 | LXGW WenKai | [lxgw/LxgwWenKai](https://github.com/lxgw/LxgwWenKai) v1.530 | SIL OFL 1.1 |
-| Noto Serif SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notoserifsc) | SIL OFL 1.1 |
 | Noto Sans SC | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc) | SIL OFL 1.1 |
 
 The woff2 files are GB2312 subsets of the originals, keeping the OFL notice and original copyright; no reserved font name is used.

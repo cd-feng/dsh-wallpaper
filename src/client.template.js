@@ -42,6 +42,11 @@ window.__ModuleLoader__.load({
     const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
     const ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+    // The composer fills over the transcript; the fill keeps at least this much
+    // alpha so the chat text behind it never becomes readable through the card
+    // (this replaced a permanent 28px backdrop blur).
+    const COMPOSER_ALPHA_FLOOR = 0.86;
+
     const OPACITY_MIN = 20;
     const OPACITY_MAX = 100;
     const BLUR_MIN = 0;
@@ -582,11 +587,18 @@ window.__ModuleLoader__.load({
         //
         // The composer card and the user bubbles are "layer" surfaces painted
         // over the wallpaper; leaving them opaque was the remaining place the
-        // artwork got covered. They follow the same knob as the columns
+        // artwork got covered. Bubbles follow the same knob as the columns
         // (`--dwp-surface-alpha`, a plain number like the panel alpha).
+        //
+        // The composer does not: it floats over the scrolling transcript, and the
+        // old fix for the resulting text bleed-through was a permanent 28px
+        // `backdrop-filter`. It now keeps a legibility floor on its own fill
+        // (`--dwp-composer-alpha` = max(surface alpha, 0.86)) instead — the wall
+        // still shows through at ~14%, and the compositor stops re-reading the
+        // backdrop on every scroll frame.
         "--dsw-specific-input-major": {
-          light: "rgba(255, 255, 255, var(--dwp-surface-alpha, 0.58))",
-          dark: "rgba(44, 44, 46, var(--dwp-surface-alpha, 0.58))",
+          light: "rgba(255, 255, 255, var(--dwp-composer-alpha, 0.86))",
+          dark: "rgba(44, 44, 46, var(--dwp-composer-alpha, 0.86))",
         },
         "--dsw-specific-bubble": {
           light: "rgba(237, 243, 254, var(--dwp-surface-alpha, 0.58))",
@@ -683,12 +695,14 @@ window.__ModuleLoader__.load({
       rules.push(
         `body[${BODY_ATTR}][data-ds-dark-theme] [class*="_sidebarCol"]{background:${sidebarGradientDark},var(--dsw-specific-sidebar-fill)}`,
       );
-      // The composer floats above the scrolling transcript, so plain alpha would
-      // let message text bleed through it: frost whatever is behind instead. The
-      // tokens above supply the tint; this only softens the backdrop.
+      // No `backdrop-filter` on the composer: it makes the compositor re-read the
+      // whole backdrop every frame while the transcript scrolls, which is the one
+      // permanent per-frame cost this plugin used to add. Legibility is handled by
+      // a fill-alpha floor in `paintNow` (`--dwp-composer-alpha`) instead — same
+      // opacity, zero backdrop readback.
       rules.push(
-        `body[${BODY_ATTR}] [class*="composerStack"] [class*="_card"],body[${BODY_ATTR}] [class*="composerSeat"] [class*="_card"]{-webkit-backdrop-filter:blur(28px) saturate(1.35);backdrop-filter:blur(28px) saturate(1.35)}`,
-        // 输入菜单嵌在毛玻璃卡片内，不能依赖自身模糊来遮住后方的聊天内容。
+        // The menu sits inside the card and paints itself: it cannot rely on the
+        // card underneath to hide the transcript behind it.
         `body[${BODY_ATTR}] [data-composer-card] [data-trigger-menu]{background:var(--dsw-alias-bg-layer-1)}`,
       );
       // Deliverable / file-change cards are elevated surfaces with their own
@@ -1557,6 +1571,11 @@ window.__ModuleLoader__.load({
           state.surfaceOpacity === null ? Math.min(1, roundTo(alpha + 0.06, 3)) : roundTo(state.surfaceOpacity / 100, 3);
         setProperty("--dwp-surface-alpha", String(surfaceAlpha));
         setProperty("--dwp-surface-mix", `${Math.round(surfaceAlpha * 100)}%`);
+        // The composer never drops below this, so dropping the backdrop blur
+        // cannot make the transcript readable through the input card. A literal
+        // number, not a CSS `max(var())`: a var that fails to parse would leave
+        // `rgba()` invalid and paint the card fully transparent.
+        setProperty("--dwp-composer-alpha", String(Math.max(surfaceAlpha, COMPOSER_ALPHA_FLOOR)));
         if (state.blur > 0) {
           setProperty("--dwp-filter", `blur(${state.blur}px)`);
           setProperty("--dwp-transform", `scale(${bleedScale(state.blur)})`);

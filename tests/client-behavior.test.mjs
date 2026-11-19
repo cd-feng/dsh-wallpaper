@@ -503,10 +503,11 @@ test("defaults to the official-style wallpaper and cleans up on dispose", async 
   assert.match(tokens["--dsw-alias-bg-base"].light, /var\(--dwp-panel-alpha/);
   assert.match(tokens["--dsw-alias-bg-base"].dark, /var\(--dwp-panel-alpha/);
   assert.match(tokens["--dsw-specific-sidebar-fill"].light, /var\(--dwp-sidebar-light/);
-  // Composer and bubbles are layer surfaces: they follow the surface alpha so the
-  // wallpaper stays visible behind them instead of being covered by solid fills.
-  assert.match(tokens["--dsw-specific-input-major"].light, /rgba\(255, 255, 255, var\(--dwp-surface-alpha/);
-  assert.match(tokens["--dsw-specific-input-major"].dark, /rgba\(44, 44, 46, var\(--dwp-surface-alpha/);
+  // Bubbles are layer surfaces: they follow the surface alpha so the wallpaper
+  // stays visible behind them instead of being covered by solid fills. The
+  // composer reads its own floored alpha instead (it lost its backdrop blur).
+  assert.match(tokens["--dsw-specific-input-major"].light, /rgba\(255, 255, 255, var\(--dwp-composer-alpha, 0\.86\)\)/);
+  assert.match(tokens["--dsw-specific-input-major"].dark, /rgba\(44, 44, 46, var\(--dwp-composer-alpha, 0\.86\)\)/);
   assert.match(tokens["--dsw-specific-bubble"].light, /rgba\(237, 243, 254, var\(--dwp-surface-alpha/);
   assert.match(tokens["--dsw-specific-bubble"].dark, /rgba\(44, 44, 46, var\(--dwp-surface-alpha/);
   // Markdown code blocks follow the same surface alpha (body + banner).
@@ -529,11 +530,11 @@ test("defaults to the official-style wallpaper and cleans up on dispose", async 
 test("the composer, bubbles and deliverable cards inherit the panel opacity", async () => {
   const app = await boot();
   const sheet = sheetOf(app).textContent;
-  // The composer floats over the transcript and frosts its backdrop so message
-  // text cannot bleed through the translucent card.
-  assert.match(sheet, /\[class\*="composerStack"\] \[class\*="_card"\]/);
-  assert.match(sheet, /\[class\*="composerSeat"\] \[class\*="_card"\]/);
-  assert.match(sheet, /backdrop-filter:blur\(28px\) saturate\(1\.35\)/);
+  // The composer floats over the transcript. It used to frost its backdrop, but
+  // `backdrop-filter` re-reads everything underneath on every scroll frame; the
+  // card now keeps a fill-alpha floor instead, so no blur may come back.
+  assert.doesNotMatch(sheet, /backdrop-filter/);
+  assert.match(sheet, /\[data-composer-card\] \[data-trigger-menu\]\{background:var\(--dsw-alias-bg-layer-1\)\}/);
   // Deliverable / file-change cards mix their own fills with the surface alpha.
   // These must key off the semantic data attributes, not the CSS-module hashes:
   // the hashes are build output of the deliverables plugin and change freely.
@@ -557,6 +558,9 @@ test("the composer, bubbles and deliverable cards inherit the panel opacity", as
   assert.equal(app.dom.rootStyle.get("--dwp-panel-alpha"), "0.8");
   assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.86");
   assert.equal(app.dom.rootStyle.get("--dwp-surface-mix"), "86%");
+  // A literal number, never `max(var(...))`: a broken var would drop the whole
+  // rgba() and paint the composer fully transparent.
+  assert.equal(app.dom.rootStyle.get("--dwp-composer-alpha"), "0.86");
   assert.equal(app.overrides.length, 1, "the token layer is still registered only once");
   app.dispose();
   assert.equal(app.dom.rootStyle.has("--dwp-surface-alpha"), false);
@@ -571,8 +575,25 @@ test("the input trigger menu stays opaque above the transcript", async () => {
     /body\[data-dsh-wallpaper\] \[data-composer-card\] \[data-trigger-menu\]\{background:var\(--dsw-alias-bg-layer-1\)\}/,
   );
   assert.equal(app.dom.rootStyle.get("--dwp-surface-alpha"), "0.2");
+  // The composer has no blur to hide the transcript behind it any more, so it
+  // keeps its own floor even when the overlay slider is at the bottom.
+  assert.equal(app.dom.rootStyle.get("--dwp-composer-alpha"), "0.86");
   app.dispose();
   assert.equal(app.dom.styleTags.length, 0, "the menu rule is removed with the wallpaper");
+});
+
+test("the composer fill never drops below its legibility floor", async () => {
+  const low = await boot({ config: { panelOpacity: 20 } });
+  await low.settle();
+  assert.equal(low.dom.rootStyle.get("--dwp-surface-alpha"), "0.26", "bubbles still follow the panel");
+  assert.equal(low.dom.rootStyle.get("--dwp-composer-alpha"), "0.86", "the composer is floored");
+  low.dispose();
+
+  const high = await boot({ config: { panelOpacity: 52, surfaceOpacity: 95 } });
+  await high.settle();
+  assert.equal(high.dom.rootStyle.get("--dwp-surface-alpha"), "0.95");
+  assert.equal(high.dom.rootStyle.get("--dwp-composer-alpha"), "0.95", "an explicit alpha above the floor wins");
+  high.dispose();
 });
 
 test("overlay opacity follows the panel until it is set on its own", async () => {
@@ -900,8 +921,10 @@ test("a bundled font is applied through the theme font variable and persisted", 
     const fontSheet = app.dom.styleTags.find((tag) => tag.dataset.pluginCss === "dsh-wallpaper/font.css");
     assert.ok(fontSheet, "font stylesheet exists");
     assert.match(fontSheet.textContent, /font-family:"DWP WenKai";/);
-    assert.match(fontSheet.textContent, /"DWP Noto Serif SC Preview"/);
-    assert.match(fontSheet.textContent, /\/dsh-wallpaper\/fonts\/serif\.woff2/);
+    assert.match(fontSheet.textContent, /"DWP Noto Sans SC Preview"/);
+    assert.match(fontSheet.textContent, /\/dsh-wallpaper\/fonts\/sans\.woff2/);
+    // 思源宋体 was cut with the other 1.3 MB face; its family must be gone too.
+    assert.doesNotMatch(fontSheet.textContent, /Noto Serif SC/);
 
     // Back to the system stack: the variable is removed, not set to a value.
     const systemButton = findAll(
