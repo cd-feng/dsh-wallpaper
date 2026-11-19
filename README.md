@@ -99,7 +99,7 @@ target: dsh-wallpaper
 ## 开发
 
 ```sh
-npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 54 条行为测试
+npm run check        # 重新生成 bundle + 校验字体载荷 + 语法检查 + 60 条行为测试
 npm test             # 只跑测试
 npm run build        # 只重新生成 lib/client.js（内联壁纸 data URI + 字体 manifest）
 npm run fonts        # 重新生成打包字体（仅换字体源时需要；需 fonttools + brotli + 网络）
@@ -126,7 +126,7 @@ dsh-wallpaper/
 ├── scripts/subset-fonts.py      # fonttools 子集（GB2312 + 拉丁 + 标点 → woff2）
 ├── scripts/check-fonts.mjs      # 校验已提交字体载荷与 manifest 一致
 ├── scripts/make-wallpapers.py   # 生成内置壁纸（Pillow + numpy）
-├── fonts/                       # 3 款 woff2 + 预览子集 + manifest.json + licenses/*.txt
+├── fonts/                       # 2 款 woff2（各带预览子集）+ manifest.json + licenses/*.txt
 ├── tests/client-behavior.test.mjs   # 浏览器半行为测试（假 DOM / React / fetch）
 ├── tests/host-routes.test.mjs       # Host 路由、fence、上传校验、重启持久性
 ├── locale/{zh,en}.json          # 插件市场标题/描述 + 设置页文案
@@ -187,7 +187,7 @@ dsh-wallpaper/
 - 字体子集只覆盖 GB2312（6763 汉字）+ 拉丁/标点/全角；生僻字回退系统字体，混排时字形会有差异。只打包 400 字重，`font-weight:500/600` 由浏览器合成加粗，观感略逊于真粗体。
 - 若曾在 Harness 原生「外观 → 字体」里设置了正文字体，那边的 `<body>` 内联值优先级更高，会盖住插件的选择；把原生设置清空即可。
 - 字号缩放作用于 Harness 的排版 token 与正文/代码/终端字号；图标、间距不缩放（是「字号缩放」而不是界面缩放）。
-- 行为测试覆盖 54 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
+- 行为测试覆盖 60 条契约，**不覆盖观感**——颜色、通透度、字体是否好看要人眼看。
 
 ## 数据完整性
 

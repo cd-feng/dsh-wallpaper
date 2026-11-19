@@ -80,7 +80,7 @@ Every route is fenced to a same-origin loopback request (`Host`, loopback peer, 
 ## Development
 
 ```sh
-npm run check        # rebuild bundle + verify font payload + syntax check + 54 behaviour tests
+npm run check        # rebuild bundle + verify font payload + syntax check + 60 behaviour tests
 npm test             # tests only
 npm run build        # rebuild lib/client.js (inlines wallpaper data URIs + font manifest)
 npm run fonts        # regenerate the bundled fonts (fonttools + brotli + network; sources pinned)
@@ -122,7 +122,7 @@ The wallpaper is a permanent full-viewport layer, so its cost is bounded on purp
 - The font subsets cover GB2312 (6763 hanzi) plus Latin/punctuation/full-width forms; rare glyphs fall back to the system font, so mixed lines can differ slightly. Only weight 400 ships — `500/600` is synthesized by the browser.
 - If the native *Appearance → Text font* field is set, its inline `<body>` value wins over the plugin's choice; clear it to let the plugin apply.
 - The text scale targets Harness typography tokens and the conversation/code/terminal sizes; icons and spacing do not scale (this is a font scale, not a UI zoom).
-- The 54 tests cover behaviour, not aesthetics.
+- The 60 tests cover behaviour, not aesthetics.
 
 ## Data integrity
 
